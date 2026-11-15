@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FBB">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#1f5f4a">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <title>FBB Control</title>
 <script>
 // apply the saved theme before the page draws, so it does not flash
@@ -44,7 +51,10 @@ button,input,select{font:inherit;color:inherit}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 /* Header */
-header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+#refresh{min-width:44px;justify-content:center}
+#refresh.spin span{display:inline-block;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .hwrap{max-width:1200px;margin:0 auto;padding:0 var(--s3);display:flex;align-items:center;gap:var(--s3);min-height:56px;flex-wrap:wrap}
 header h1{font-size:14px;margin:0;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
 [role=tablist]{display:flex;gap:var(--s1);align-self:stretch}
@@ -197,6 +207,14 @@ details.help p{max-width:760px;color:var(--dim)}
 #dock .in{max-width:1200px;margin:0 auto;padding:12px var(--s3);display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
 #dock .grow{flex:1;min-width:200px}
 #dock .res{font-weight:700}
+@media(max-width:560px){
+  header h1,#pulled,.long{display:none}
+  .hwrap{flex-wrap:nowrap;gap:var(--s1);min-height:48px}
+  [role=tablist]{flex:1;min-width:0}
+  #theme{font-size:0;min-width:44px;justify-content:center;padding:0}
+  #theme::before{content:"\25D0";font-size:18px;line-height:1}
+  #refresh{order:2}
+}
 @media(max-width:560px){.hwrap,main,#dock .in{padding-left:var(--s2);padding-right:var(--s2)}.rows{grid-template-columns:88px 1fr}}
 /* Lock screen: the data is encrypted; the password decrypts it in this browser */
 #lock{position:fixed;inset:0;z-index:9;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:var(--s2)}
@@ -218,10 +236,11 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
     <h1>FBB Control</h1>
     <div role="tablist" aria-label="Views">
       <button role="tab" id="t-morning" aria-controls="tab-morning" aria-selected="true">Sync</button>
-      <button role="tab" id="t-trade" aria-controls="tab-trade" aria-selected="false" tabindex="-1">Trade analyzer</button>
+      <button role="tab" id="t-trade" aria-controls="tab-trade" aria-selected="false" tabindex="-1">Trade<span class="long"> analyzer</span></button>
       <button role="tab" id="t-league" aria-controls="tab-league" aria-selected="false" tabindex="-1">League</button>
     </div>
     <span class="dim cap" id="pulled"></span>
+    <button class="btn" id="refresh" type="button" aria-label="Check for new data" title="Check for new data"><span aria-hidden="true">&#8635;</span></button>
     <button class="btn" id="theme" type="button" aria-live="polite">Theme: System</button>
   </div>
 </header>
@@ -233,7 +252,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
     <div class="runbar">
       <div class="grow">
         <div style="font-weight:600">Sync</div>
-        <div class="dim cap">GitHub Actions pulls ESPN data at 05:16, 15:46 and 19:46 and plans for today, or for tomorrow after the first tip. Read-only: it makes no ESPN moves. A sync takes about 3 to 4 minutes.</div>
+        <div class="dim cap">Automatic at 05:16, 15:46 and 19:46. Read-only on ESPN. Sync now takes 3 to 4 minutes.</div>
       </div>
       <button class="btn ghost" id="full" type="button" aria-pressed="false">Show full report</button>
       <label class="switch"><input type="checkbox" id="send" role="switch"> <span>Send push</span></label>
@@ -323,8 +342,10 @@ const REPO = 'siriusganesh/fantasy-basketball', WORKFLOW = 'https://github.com/'
 const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 let B = null;   // decrypted bundle
 const ub64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+let encText = null;   // site.enc as loaded; vault.py keeps the file unchanged when the data did not change
 async function openBundle(pw, q = '') {
-  const e = await (await fetch('site.enc' + q, {cache: 'no-store'})).json();
+  const txt = await (await fetch('site.enc' + q, {cache: 'no-store'})).text();
+  const e = JSON.parse(txt); encText = encText || txt;
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
   const k = await crypto.subtle.deriveKey({name:'PBKDF2', hash:'SHA-256', salt: ub64(e.salt), iterations: e.iter}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM', iv: ub64(e.iv)}, k, ub64(e.ct))));
@@ -358,7 +379,12 @@ async function evalTrade(a, b, ag, bg) {
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'style' || k.startsWith('aria-') || k.startsWith('data-')) e.setAttribute(k, v); else e[k] = v; } kids.flat().forEach(k => k != null && e.append(k)); return e; };
 const f2 = x => (x > 0 ? '+' : '') + x.toFixed(2);
 const cls = x => x > 0.005 ? 'pos' : x < -0.005 ? 'neg' : '';
-const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+// Relative times are recomputed every 30 s and when the app comes back to the front (home-screen apps are not reloaded).
+const LIVE = new Map();
+const live = (sel, fn) => { LIVE.set(sel, fn); const e = $(sel); if (e) e.textContent = fn(); };
+const tickLive = () => LIVE.forEach((fn, sel) => { if (sel === '#status' && syncing) return; const e = $(sel); if (e) e.textContent = fn(); });
+setInterval(tickLive, 30000);
+const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 360 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 
 // ---------------- theme: System -> Light -> Dark
 const THEMES = ['system', 'light', 'dark'];
@@ -393,9 +419,9 @@ function showSync() {
   const r = B.run || {};
   $('#ghLink').href = WORKFLOW;
   $('#modeTag').className = 'mode ' + (r.sent === 'true' ? 'live' : 'dry');
-  $('#modeTag').textContent = r.sent === 'true' ? 'Push on for this run (same rules as before)' : 'Push off for this run';
-  const when = B.built ? 'Last sync ' + ago(B.built) + ' (' + new Date(B.built).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ', ' + (r.event || '?') + ')' : '';
-  $('#status').textContent = when + (r.rc ? '. The run failed (exit ' + r.rc + '), see the log.' : '');
+  $('#modeTag').textContent = r.sent === 'true' ? 'Last run: push on' : 'Last run: push off';
+  const when = () => B.built ? 'Last sync ' + ago(B.built) + ' (' + new Date(B.built).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ', ' + ({schedule: 'scheduled', workflow_dispatch: 'manual'}[r.event] || r.event || '?') + ')' : '';
+  live('#status', () => when() + (r.rc ? '. The run failed (exit ' + r.rc + '), see the log.' : ''));
   $('#status').className = r.rc ? 'neg' : 'dim';
   const txt = (showFull ? B.report_full : B.report_short) || B.stdout || '';
   renderReport({html: esc(txt), label: 'Sync', running: false});
@@ -478,6 +504,22 @@ async function dispatch(inputs, label) {
     syncing = false; $('#run').disabled = false; $('#accept').disabled = false;
   }
 }
+let lastCheck = 0;
+async function checkNew(manual) {
+  if (!PW || syncing) return;
+  lastCheck = Date.now(); tickLive();
+  $('#refresh').classList.add('spin');
+  try {
+    const txt = await (await fetch('site.enc?t=' + Date.now(), {cache: 'no-store'})).text();
+    if (txt !== encText) { try { sessionStorage.setItem('fbbPwOnce', PW); } catch (e) {} location.reload(); return; }
+    if (manual) say('No new data. ' + $('#status').textContent.replace(/^No new data\. /, ''));
+  } catch (e) { if (manual) say('Could not check for new data (offline?)', 'neg'); }
+  finally { $('#refresh').classList.remove('spin'); }
+}
+$('#refresh').onclick = () => checkNew(true);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastCheck > 30000) checkNew(false); });
+window.addEventListener('pageshow', e => { if (e.persisted) checkNew(false); });
+setInterval(() => { if (document.visibilityState === 'visible') checkNew(false); }, 5 * 60000);
 $('#run').onclick = () => dispatch({send: String($('#send').checked)}, 'Sync');
 $('#send').onchange = () => { $('#run').textContent = $('#send').checked ? 'Sync now and push' : 'Sync now'; };
 $('#tokSave').onclick = async () => {
@@ -586,7 +628,7 @@ async function loadSeason() {
   const has = c && (c.add.length || c.remove.length);
   $('#corebar').hidden = !has;
   if (has) $('#coretext').textContent = 'Add ' + (c.add.join(', ') || 'none') + '. Remove ' + (c.remove.join(', ') || 'none') + '.';
-  if (season.mtime) $('#ideasNote').textContent = 'From the sync ' + ago(season.mtime * 1000) + '. Select one to load it.';
+  if (season.mtime) live('#ideasNote', () => 'From the sync ' + ago(season.mtime * 1000) + '. Select one to load it.');
   renderIdeas();
 }
 
@@ -598,7 +640,7 @@ function initTrade() {
   $('#sideA').replaceChildren(el('div', {className:'dim', textContent:'Loading rosters ...'}));
   return loading = api('/api/league').then(d => {
     L = d;
-    $('#pulled').textContent = 'ESPN data ' + ago(L.pulled) + ' (' + new Date(L.pulled).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ')';
+    live('#pulled', () => 'ESPN data ' + ago(L.pulled) + ' (' + new Date(L.pulled).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ')');
     team.A = L.me; team.B = L.teams.find(t => t.id !== L.me).id;
     render(); renderIdeas();
   }).catch(e => { $('#sideA').replaceChildren(el('div', {className:'neg', textContent:'Could not load rosters: ' + e.message})); loading = null; });
@@ -758,7 +800,7 @@ async function loadStandings(force) {
   try { d = await api('/api/standings'); } catch (e) { $('#lgSub').textContent = 'Could not load: ' + e.message; return; }
   stLoaded = Date.now();
   const pd = md(d.plan_day);
-  $('#lgSub').textContent = 'Rosters as of ' + pd + (d.plan_mode === 'tomorrow' ? ' (tomorrow)' : '') + '. Data pulled ' + ago(d.pulled) + '. Next week = Matchup ' + d.typical_week.mp + ', ' + md(d.typical_week.start) + ' to ' + md(d.typical_week.end) + '.';
+  live('#lgSub', () => 'Rosters as of ' + pd + (d.plan_mode === 'tomorrow' ? ' (tomorrow)' : '') + '. Data pulled ' + ago(d.pulled) + '. Next week = Matchup ' + d.typical_week.mp + ', ' + md(d.typical_week.start) + ' to ' + md(d.typical_week.end) + '.');
   const head = el('tr', {}, el('th', {className:'r', textContent:'#'}), el('th', {textContent:'Team'}), el('th', {className:'r', textContent:'Value'}),
     el('th', {className:'r', textContent:'Strength'}), el('th', {className:'r', textContent:'Next week'}), el('th', {className:'r', textContent:'When you play'}));
   const body = [];

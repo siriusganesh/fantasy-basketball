@@ -118,7 +118,7 @@ jobs:
       - name: Build the site
         run: |
           mkdir -p _site
-          cp site/index.html app/trade_eval.py _site/
+          cp site/* app/trade_eval.py _site/
           cp data/site.enc _site/
           touch _site/.nojekyll
 
