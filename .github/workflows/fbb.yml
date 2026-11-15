@@ -1,0 +1,139 @@
+name: FBB sync
+
+# Read-only on ESPN: the scripts only GET league data and propose moves. You make every move yourself.
+# The repo is public, so nothing with league data goes to the Actions log: all script output goes to files,
+# which are committed only encrypted (data/*.enc). Secrets: ESPN_S2, ESPN_SWID, NTFY_TOPIC, FBB_PASSWORD.
+
+on:
+  schedule:
+    - cron: '16 12 * * *'   # 05:16 MST, same as the Mac launchd job. Cron is UTC: 06:16 after DST starts (Mar 14, 2027).
+  workflow_dispatch:
+    inputs:
+      send:
+        description: 'Send the ntfy push (same rules as the scheduled run)'
+        type: boolean
+        default: false
+      accept_core:
+        description: 'Only accept the core list change proposed by the last run'
+        type: boolean
+        default: false
+      rekey:
+        description: 'Only re-encrypt data/ with the FBB_PASSWORD_NEW secret'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: fbb          # one run at a time: runs share the state files
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TZ: America/Denver
+      FBB_PASSWORD: ${{ secrets.FBB_PASSWORD }}
+      PYTHONWARNINGS: ignore
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.5'
+          cache: pip
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Decrypt state
+        run: python tools/vault.py unpack
+
+      - name: Sync (output to files only)
+        id: sync
+        if: ${{ !inputs.accept_core && !inputs.rekey }}
+        working-directory: app
+        env:
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          ESPN_SWID: ${{ secrets.ESPN_SWID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SEND: ${{ github.event_name == 'schedule' || inputs.send }}
+        run: |
+          mkdir -p ../out
+          args="--dry-run"; [ "$SEND" = "true" ] && args=""
+          set +e
+          python morning_fbb.py $args --report-dir ../out > ../out/stdout.txt 2>&1
+          rc=$?
+          if [ -f raw_snapshot.json ]; then
+            python standings.py raw_snapshot.json league_matchup_schedule_2026-27.csv > ../out/standings.json 2>> ../out/stderr.txt
+            python trade_eval.py raw_snapshot.json league_matchup_schedule_2026-27.csv > ../out/trade_ctx.json 2>> ../out/stderr.txt
+            python -c "import json, trade_eval as T; print(json.dumps(T.league_json(json.load(open('../out/trade_ctx.json')))))" > ../out/league.json 2>> ../out/stderr.txt
+          fi
+          set -e
+          printf '{"rc": %s, "event": "%s", "sent": "%s", "run_url": "%s"}\n' "$rc" "$GITHUB_EVENT_NAME" "$SEND" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > ../out/run.json
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "morning_fbb.py exit code $rc (details on the web page)"
+
+      - name: Accept core
+        if: ${{ inputs.accept_core }}
+        working-directory: app
+        run: python morning_fbb.py --accept-core > /dev/null
+
+      - name: Re-encrypt with the new password
+        if: ${{ inputs.rekey }}
+        env:
+          FBB_PASSWORD_NEW: ${{ secrets.FBB_PASSWORD_NEW }}
+        run: python tools/vault.py rekey
+
+      - name: Encrypt state, logs and the page data
+        if: ${{ !inputs.rekey }}
+        run: |
+          python tools/vault.py pack
+          if [ -d out ]; then python tools/vault.py site out; fi
+
+      - name: Scan every file for secret values
+        env:
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
+          ESPN_SWID: ${{ secrets.ESPN_SWID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python tools/vault.py scan
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "no data change"; exit 0; fi
+          git commit -q -m "data: $(date '+%Y-%m-%d %H:%M %Z') ${GITHUB_EVENT_NAME} [skip ci]"
+          git pull -q --rebase && git push -q
+
+      - name: Build the site
+        run: |
+          mkdir -p _site
+          cp site/index.html app/trade_eval.py _site/
+          cp data/site.enc _site/
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Fail the job when the sync failed
+        if: ${{ steps.sync.outputs.rc && steps.sync.outputs.rc != '0' }}
+        run: exit 1
+
+  deploy:
+    needs: sync
+    if: ${{ always() && needs.sync.result != 'cancelled' }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

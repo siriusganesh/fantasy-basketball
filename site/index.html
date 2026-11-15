@@ -198,9 +198,21 @@ details.help p{max-width:760px;color:var(--dim)}
 #dock .grow{flex:1;min-width:200px}
 #dock .res{font-weight:700}
 @media(max-width:560px){.hwrap,main,#dock .in{padding-left:var(--s2);padding-right:var(--s2)}.rows{grid-template-columns:88px 1fr}}
+/* Lock screen: the data is encrypted; the password decrypts it in this browser */
+#lock{position:fixed;inset:0;z-index:9;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:var(--s2)}
+#lock form{max-width:360px;width:100%}
+#lock input[type=password]{width:100%;box-sizing:border-box;margin:var(--s1) 0;padding:10px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
 </style>
 </head>
 <body>
+<div id="lock"><form class="card" id="lockForm">
+  <div style="font-weight:600">FBB Control</div>
+  <div class="dim cap">The data on this page is encrypted. Enter the password to read it in this browser.</div>
+  <input type="password" id="pw" autocomplete="current-password" aria-label="Password" required>
+  <label class="cap"><input type="checkbox" id="remember" style="margin:0 6px 0 0">Remember on this device</label>
+  <div style="margin-top:var(--s1)"><button class="btn primary" type="submit">Open</button> <span id="lockMsg" class="cap neg"></span></div>
+</form></div>
 <header>
   <div class="hwrap">
     <h1>FBB Control</h1>
@@ -221,24 +233,25 @@ details.help p{max-width:760px;color:var(--dim)}
     <div class="runbar">
       <div class="grow">
         <div style="font-weight:600">Sync</div>
-        <div class="dim cap">Pulls ESPN data and plans for today, or for tomorrow after the first tip of the day. Takes about one minute.</div>
+        <div class="dim cap">GitHub Actions pulls ESPN data every day at 05:16 and plans for today, or for tomorrow after the first tip. Read-only: it makes no ESPN moves.</div>
       </div>
-      <label class="switch"><input type="checkbox" id="send" role="switch"> <span>Send iMessage</span></label>
-      <button class="btn primary" id="run"><span id="runLabel">Run dry check</span></button>
+      <button class="btn ghost" id="full" type="button" aria-pressed="false">Show full report</button>
+      <a class="btn primary" id="run" target="_blank" rel="noopener">Run now on GitHub</a>
     </div>
-    <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry">Dry run: nothing is sent</span> <span id="status" class="dim"></span></div>
+    <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry"></span> <span id="status" class="dim"></span></div>
   </div>
 
   <div class="banner warn" id="corebar" style="margin-top:16px" hidden>
     <div class="grow"><b>Core change proposed.</b> <span id="coretext"></span></div>
     <button class="btn" id="accept">Accept core change</button>
-    <button class="btn warn" id="acceptYes" hidden>Confirm accept</button>
+    <a class="btn warn" id="acceptYes" target="_blank" rel="noopener" hidden>Open workflow (tick accept_core)</a>
     <button class="btn ghost" id="acceptNo" hidden>Cancel</button>
   </div>
 
   <div id="report" style="margin-top:24px">
-    <div class="card empty" id="reportEmpty">No report yet. Press <b>Run dry check</b> to see today's plan.</div>
+    <div class="card empty" id="reportEmpty">No report yet.</div>
   </div>
+  <details class="help" id="logWrap" hidden><summary>Today's log</summary><pre class="term r" id="logText" style="max-height:480px;overflow:auto"></pre></details>
 </section>
 
 <!-- ================= Trade analyzer ================= -->
@@ -263,7 +276,8 @@ details.help p{max-width:760px;color:var(--dim)}
     <p>Each side gives the players it picks and gets the other side's picks.
     ROS is rest-of-season z: per-game z in 9 categories times games left, the same as season_plan.py.
     The winner is the team with the larger gain in its best-10 total, with equal category weights. Gains closer than the even band count as an even trade.
-    "Your wt" uses the category weights in cat_weights.json. PV is perceived value, used for the "would accept" check.</p>
+    "Your wt" uses the category weights in cat_weights.json. PV is perceived value, used for the "would accept" check.
+    The check runs the Python model (trade_eval.py) in this browser with Pyodide, on the data of the last sync. The first check loads Pyodide and numpy (about 10 MB, then cached).</p>
   </details>
 </section>
 
@@ -296,8 +310,43 @@ details.help p{max-width:760px;color:var(--dim)}
 
 <script>
 const $ = s => document.querySelector(s);
-const api = (path, body) => fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json','X-FBB':'1'}, body:JSON.stringify(body)} : {}).then(async r => {
-  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+// ---------------- data: site.enc, AES-256-GCM, key = PBKDF2-SHA256(password) (same as tools/vault.py)
+const REPO = 'siriusganesh/fantasy-basketball', WORKFLOW = 'https://github.com/' + REPO + '/actions/workflows/fbb.yml';
+const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
+let B = null;   // decrypted bundle
+const ub64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function openBundle(pw) {
+  const e = await (await fetch('site.enc', {cache: 'no-store'})).json();
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  const k = await crypto.subtle.deriveKey({name:'PBKDF2', hash:'SHA-256', salt: ub64(e.salt), iterations: e.iter}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM', iv: ub64(e.iv)}, k, ub64(e.ct))));
+}
+const api = async path => {   // the old server routes, now answered from the bundle
+  if (path === '/api/season') return Object.assign({}, B.season || {}, {mtime: B.built ? Date.parse(B.built) / 1000 : null});
+  if (path === '/api/league') { if (!B.league) throw new Error('no roster data in the last sync'); return B.league; }
+  if (path === '/api/standings') { if (!B.standings) throw new Error('no standings in the last sync'); return B.standings; }
+  throw new Error('unknown ' + path);
+};
+let pyReady = null;
+function py() {   // Pyodide + numpy + trade_eval.py, loaded once on the first trade check
+  if (!pyReady) pyReady = (async () => {
+    await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = PYODIDE + 'pyodide.js'; s.onload = ok; s.onerror = () => bad(new Error('could not load Pyodide')); document.head.append(s); });
+    const p = await loadPyodide({indexURL: PYODIDE});
+    await p.loadPackage('numpy');
+    p.FS.writeFile('trade_eval.py', await (await fetch('trade_eval.py', {cache: 'no-store'})).text());
+    p.runPython('import sys, json; sys.path.insert(0, "."); import trade_eval as TE');
+    p.globals.set('CTX_JSON', JSON.stringify(B.trade_ctx));
+    p.runPython('CTX = json.loads(CTX_JSON)');
+    return p;
+  })().catch(e => { pyReady = null; throw e; });
+  return pyReady;
+}
+async function evalTrade(a, b, ag, bg) {
+  const p = await py();
+  p.globals.set('ARGS', JSON.stringify([a, b, ag, bg]));
+  try { return JSON.parse(p.runPython('json.dumps(TE.eval_trade(CTX, *json.loads(ARGS)))')); }
+  catch (e) { const m = String(e.message || e).trim().split('\n').pop(); throw new Error(m.replace(/^ValueError: /, '')); }
+}
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'style' || k.startsWith('aria-') || k.startsWith('data-')) e.setAttribute(k, v); else e[k] = v; } kids.flat().forEach(k => k != null && e.append(k)); return e; };
 const f2 = x => (x > 0 ? '+' : '') + x.toFixed(2);
 const cls = x => x > 0.005 ? 'pos' : x < -0.005 ? 'neg' : '';
@@ -329,55 +378,28 @@ tabs.forEach((b, i) => {
   b.onkeydown = e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]; n.focus(); showTab(n); } };
 });
 
-// ---------------- morning check
-let poll = null, started = null, tick = null, lastJob = null;
-function syncMode() {
-  const live = $('#send').checked;
-  $('#runLabel').textContent = live ? 'Run and send iMessage' : 'Run dry check';
-  $('#modeTag').className = 'mode ' + (live ? 'live' : 'dry');
-  $('#modeTag').textContent = live ? 'Live: the iMessage is sent' : 'Dry run: nothing is sent';
+// ---------------- sync report (from the last GitHub Actions run)
+const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+let showFull = false;
+function showSync() {
+  const r = B.run || {};
+  $('#run').href = WORKFLOW;
+  $('#acceptYes').href = WORKFLOW;
+  $('#modeTag').className = 'mode ' + (r.sent === 'true' ? 'live' : 'dry');
+  $('#modeTag').textContent = r.sent === 'true' ? 'Push on for this run (same rules as before)' : 'Push off for this run';
+  const when = B.built ? 'Last sync ' + ago(B.built) + ' (' + new Date(B.built).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ', ' + (r.event || '?') + ')' : '';
+  $('#status').textContent = when + (r.rc ? '. The run failed (exit ' + r.rc + '), see the log.' : '');
+  $('#status').className = r.rc ? 'neg' : 'dim';
+  const txt = (showFull ? B.report_full : B.report_short) || B.stdout || '';
+  renderReport({html: esc(txt), label: 'Sync', running: false});
+  if (B.log_today) { $('#logWrap').hidden = false; $('#logText').textContent = B.log_today; }
 }
-$('#send').onchange = syncMode;
-
-function setStatus(j) {
-  const s = $('#status');
-  clearInterval(tick); tick = null;
-  if (j.running) {
-    if (!started) started = Date.now();
-    const draw = () => s.replaceChildren(el('span', {className:'spin', 'aria-hidden':'true'}), ' ' + j.label + ', ' + Math.round((Date.now() - started) / 1000) + ' s');
-    draw(); tick = setInterval(draw, 1000);
-    s.className = '';
-  } else {
-    started = null;
-    if (j.rc === null) s.textContent = '';
-    else if (j.rc === 0) { s.textContent = j.label + ': done.'; s.className = 'pos'; }
-    else { s.textContent = j.label + ': failed (exit ' + j.rc + '). See morning-fbb/logs.'; s.className = 'neg'; }
-  }
-  for (const b of ['#run', '#accept', '#acceptYes']) $(b).disabled = j.running;
-  $('#runLabel').parentElement.querySelector('.spin')?.remove();
-  if (j.running) $('#run').prepend(el('span', {className:'spin', 'aria-hidden':'true'}));
-}
-async function refreshJob() {
-  const j = await api('/api/job');
-  if (j.label && (!lastJob || j.html !== lastJob.html || j.running !== lastJob.running)) renderReport(j);
-  setStatus(j);
-  lastJob = j;
-  if (!j.running && poll) { clearInterval(poll); poll = null; loadSeason(); }
-  return j;
-}
-function startPoll() { if (!poll) poll = setInterval(() => refreshJob().catch(() => {}), 800); }
-$('#run').onclick = async () => {
-  try { await api('/api/run', {send: $('#send').checked}); startPoll(); refreshJob(); }
-  catch (e) { $('#status').textContent = e.message; $('#status').className = 'neg'; }
-};
-// Accepting a core change edits core_list.json, so it takes two clicks.
+$('#full').onclick = () => { showFull = !showFull; $('#full').setAttribute('aria-pressed', String(showFull)); $('#full').textContent = showFull ? 'Show short report' : 'Show full report'; showSync(); };
+// Accepting a core change edits core_list.json: run the workflow with accept_core ticked (two clicks).
 const confirmUI = on => { $('#accept').hidden = on; $('#acceptYes').hidden = !on; $('#acceptNo').hidden = !on; if (on) $('#acceptYes').focus(); };
 $('#accept').onclick = () => confirmUI(true);
 $('#acceptNo').onclick = () => confirmUI(false);
-$('#acceptYes').onclick = async () => {
-  confirmUI(false);
-  try { await api('/api/accept-core', {}); startPoll(); refreshJob(); } catch (e) { $('#status').textContent = e.message; $('#status').className = 'neg'; }
-};
+$('#acceptYes').onclick = () => confirmUI(false);
 
 // The script prints "label (13 chars) + text". Turn those rows into a readable grid; keep the raw text in a fold.
 const LABW = 13;
@@ -454,7 +476,7 @@ function renderReport(j) {
   const cards = sections.filter(s => s.length).map(sec => {
     const rows = el('div', {className:'rows r'});
     for (const r of sec) {
-      if (r.label === 'Win chance') continue;
+      if (r.label === 'Win chance' || r.label === 'Details') continue;   // 'Details' = the old terminal hint; the button above shows the full report
       const val = chipKind[r.label] ? catChips(r.node, chipKind[r.label]) : r.node;
       const cell = el('div', {}, val, r.subs.map(s => el('span', {className:'sub'}, s)));
       if ((r.label === 'Today' || r.label === 'Tomorrow') && /PROPOSED/.test(r.node.textContent)) cell.style.fontWeight = '600';
@@ -566,7 +588,8 @@ async function evaluate() {
     dock(need, ''); return;
   }
   try {
-    const r = await api('/api/trade', {a_team: team.A, b_team: team.B, a_give: [...sel.A], b_give: [...sel.B]});
+    if (!pyReady) dock('Loading the trade model ...', 'First check only: Pyodide and numpy, about 10 MB');
+    const r = await evalTrade(team.A, team.B, [...sel.A], [...sel.B]);
     box.replaceChildren(...result(r));
   } catch (e) { box.replaceChildren(el('div', {className:'banner bad', textContent: e.message})); dock('Could not evaluate', e.message, 'neg'); }
 }
@@ -626,9 +649,7 @@ async function loadIdea(i, n) {
   render(); activeIdea = n; markIdeas();
 }
 
-// ---------------- start
-syncMode();
-loadSeason().catch(() => {});
+// ---------------- start: after the password (bottom of the script)
 
 // ---------------- league
 let stLoaded = 0;
@@ -669,17 +690,25 @@ async function loadStandings(force) {
   });
   $('#lgTable').replaceChildren(el('thead', {}, head), el('tbody', {}, body));
 }
-// Auto sync on page load: dry run only (no iMessage), skipped if one started in the last 5 minutes.
-refreshJob().then(j => {
-  if (j.running) return startPoll();
-  let last = 0;
-  try { last = +localStorage.getItem('fbbLastSync') || 0; } catch (e) {}
-  if (Date.now() - last < 300000) return;
-  try { localStorage.setItem('fbbLastSync', String(Date.now())); } catch (e) {}
-  return api('/api/run', {send: false}).then(() => { startPoll(); refreshJob(); });
-}).catch(() => {});
-initTrade();   // loads rosters in the background so the data time shows in the header
-try { const t = localStorage.getItem('fbbTab'); if (t && $('#' + t)) showTab($('#' + t)); } catch (e) {}
+async function start() {
+  showSync();
+  await loadSeason().catch(() => {});
+  initTrade();   // rosters from the bundle, so the data time shows in the header
+  try { const t = localStorage.getItem('fbbTab'); if (t && $('#' + t)) showTab($('#' + t)); } catch (e) {}
+}
+async function unlock(pw, remember) {
+  B = await openBundle(pw);
+  try { if (remember) localStorage.setItem('fbbPw', pw); } catch (e) {}
+  $('#lock').remove();
+  start();
+}
+$('#lockForm').onsubmit = async e => {
+  e.preventDefault(); $('#lockMsg').textContent = 'Opening ...';
+  try { await unlock($('#pw').value, $('#remember').checked); }
+  catch (err) { $('#lockMsg').textContent = err.name === 'OperationError' ? 'Wrong password.' : 'Could not open: ' + err.message; }
+};
+try { const pw = localStorage.getItem('fbbPw'); if (pw) unlock(pw, false).catch(() => { try { localStorage.removeItem('fbbPw'); } catch (e) {} }); } catch (e) {}
+$('#pw').focus();
 </script>
 </body>
 </html>

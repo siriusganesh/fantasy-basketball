@@ -1,0 +1,11 @@
+# Same versions as the Mac .venv on 2026-11-15 (Python 3.14.5), plus cryptography for the data encryption.
+numpy==2.5.4
+scipy==1.18.1
+requests==2.34.2
+urllib3==2.8.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12

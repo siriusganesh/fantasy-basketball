@@ -33,8 +33,15 @@ class AuthError(Exception):
     pass
 
 
+def load_cookies(path):
+    """config.json when it exists (Mac), else the ESPN_S2 and ESPN_SWID environment variables (GitHub Actions secrets)."""
+    if os.path.exists(path):
+        return json.load(open(path))
+    return {'espn_s2': os.environ['ESPN_S2'], 'swid': os.environ['ESPN_SWID']}
+
+
 def main():
-    cfg = json.load(open(sys.argv[1]))
+    cfg = load_cookies(sys.argv[1])
     out_path = sys.argv[2]
     target_mp = int(sys.argv[3]) if len(sys.argv) > 3 else None
     swid = cfg['swid'].strip()
@@ -42,6 +49,9 @@ def main():
     sess.cookies.set('espn_s2', cfg['espn_s2'].strip(), domain='.espn.com')
     sess.cookies.set('SWID', swid, domain='.espn.com')
     sess.headers['User-Agent'] = 'Mozilla/5.0'
+    # 2026-11-15: back-to-back runs got two different sets of projections from ESPN (cache servers, guess).
+    # Ask for a fresh copy, and pull the free agents twice to detect it (see 'stability' in the snapshot).
+    sess.headers['Cache-Control'] = 'no-cache'
 
     def get(url, flt=None):
         h = {'x-fantasy-filter': json.dumps(flt)} if flt else {}
@@ -124,9 +134,18 @@ def main():
                 'roster': [pl(e['playerPoolEntry']['player'], slot=e['lineupSlotId'], rater=rater(e['playerPoolEntry']))
                            for e in t['roster']['entries']]}
 
-    fa_raw = get(f'{BASE}?scoringPeriodId={plan_sp}&view=kona_player_info', {'players': {
+    fa_flt = {'players': {
         'filterStatus': {'value': ['FREEAGENT', 'WAIVERS']}, 'filterSlotIds': {'value': [0, 1, 2, 3, 4, 5, 6, 11]},
-        'limit': FA_LIMIT, 'sortPercOwned': {'sortPriority': 1, 'sortAsc': False}}})
+        'limit': FA_LIMIT, 'sortPercOwned': {'sortPriority': 1, 'sortAsc': False}}}
+    fa_raw = get(f'{BASE}?scoringPeriodId={plan_sp}&view=kona_player_info', fa_flt)
+    # stability check: a second pull of the same free-agent view must give the same projections
+    fa_again = get(f'{BASE}?scoringPeriodId={plan_sp}&view=kona_player_info', fa_flt)
+    proj_of = lambda raw: {x['player']['id']: avg(x['player'], f'10{SEASON}') for x in raw['players']}
+    p1, p2 = proj_of(fa_raw), proj_of(fa_again)
+    unstable = sorted(x['player']['fullName'] for x in fa_raw['players']
+                      if x['player']['id'] in p2 and p1[x['player']['id']] != p2[x['player']['id']])
+    stability = {'fa_proj_same': not unstable, 'fa_proj_diff': unstable[:20],
+                 'fa_set_same': set(p1) == set(p2)}
     fas = [pl(x['player'], status=x.get('status'), waiverDate=x.get('waiverProcessDate'), rater=rater(x),
               rost=round(float((x['player'].get('ownership') or {}).get('percentOwned', 0)), 1))
            for x in fa_raw['players']]
@@ -206,7 +225,7 @@ def main():
         'acq': {k: acq.get(k) for k in ('matchupAcquisitionLimit', 'matchupLimitPerScoringPeriod', 'waiverHours')},
         'proTeams': {str(t['id']): t['abbrev'].upper() for t in ps['settings']['proTeams']},
         'games': games, 'me': mark_pending(side(me['id']), pend_drop), 'opp': side(opp_id), 'fas': fas,
-        'gamesAll': games_all, 'teams': teams, 'tradesTx': trades_tx}
+        'gamesAll': games_all, 'teams': teams, 'tradesTx': trades_tx, 'stability': stability}
     json.dump(js_numbers(snap), open(out_path, 'w'))
 
 

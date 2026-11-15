@@ -3,18 +3,20 @@ no ESPN moves (read-only). Before the first NBA tip of the day it plans for toda
 tomorrow (fetch_espn.py picks the plan day and pulls the rosters ESPN has for that day).
 
 Steps: pull ESPN data (fetch_espn.py) -> daily_run.py -> apply the proposal rules ->
-send an iMessage only when there is something to report. Every run appends the raw
+send a push (ntfy) only when there is something to report. Every run appends the raw
 output to logs/. The screen shows a short report (colors when stdout is a terminal).
 
 Usage: python3 morning_fbb.py [--dry-run] [--force-send] [--trades]
        python3 morning_fbb.py --accept-core
   --dry-run      print the message, do not send it
+  --report-dir D write the short and the full screen report to D (report_short.txt, report_full.txt)
   --force-send   send even when the rules say stay silent (for a test)
-  --trades       (no effect: trade ideas show on screen every run; the iMessage has the best one on Sundays)
+  --trades       (no effect: trade ideas show on screen every run; the push has the best one on Sundays)
   --accept-core  write the core list that the last run proposed into core_list.json, then stop
   --full         show the full screen report (default: short report with what to do)
 """
-import sys, os, re, ast, json, subprocess, datetime as dt
+import sys, os, re, ast, json, subprocess, datetime as dt, io, contextlib
+import requests
 from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +36,11 @@ DRY = '--dry-run' in sys.argv
 FORCE = '--force-send' in sys.argv
 FULL = '--full' in sys.argv
 os.makedirs('logs', exist_ok=True)
-NOW = dt.datetime.now().astimezone()   # Mac local time zone
+NOW = dt.datetime.now().astimezone()   # local time zone (TZ=America/Denver in GitHub Actions)
+if os.environ.get('FBB_NOW'):          # test replay only: run as if at this time (ISO with offset)
+    NOW = dt.datetime.fromisoformat(os.environ['FBB_NOW'])
+REPLAY = os.environ.get('FBB_REPLAY') == '1'   # test replay only: use the saved raw_*.json, no ESPN pull
+REPORT_DIR = sys.argv[sys.argv.index('--report-dir') + 1] if '--report-dir' in sys.argv else None
 LOG = open(os.path.join('logs', NOW.strftime('%Y-%m-%d') + '.log'), 'a')
 
 
@@ -56,25 +62,38 @@ def run(args):
 
 
 def send(text):
+    """Push with ntfy (replaces the iMessage). Same send rules. The topic comes from the NTFY_TOPIC secret
+    and is never logged or printed."""
     log('MESSAGE:', text)
     if DRY:
         SENT.append((text, 'dry run, not sent'))
         return
-    to = json.load(open('config.json'))['imessage_to']
-    script = ('on run argv\n'
-              'tell application "Messages"\n'
-              'set s to 1st account whose service type = iMessage\n'
-              'send (item 1 of argv) to participant (item 2 of argv) of s\n'
-              'end tell\n'
-              'end run')
-    r = subprocess.run(['/usr/bin/osascript', '-e', script, text, to], capture_output=True, text=True)
-    if r.returncode:
-        log('SEND FAIL:', r.stderr.strip())
-        subprocess.run(['/usr/bin/osascript', '-e',
-                        f'display notification {json.dumps(text[:200])} with title "FBB sync"'])
-        SENT.append((text, 'iMessage FAILED, Mac notification shown'))
-    else:
+    topic = os.environ.get('NTFY_TOPIC', '').strip()
+    server = os.environ.get('NTFY_SERVER', 'https://ntfy.sh').rstrip('/')
+    if not topic:
+        log('SEND FAIL: NTFY_TOPIC is not set')
+        SENT.append((text, 'push FAILED: NTFY_TOPIC not set'))
+        return
+    try:
+        r = requests.post(f'{server}/{topic}', data=text.encode('utf-8'), timeout=20,
+                          headers={'Title': 'FBB sync', 'Tags': 'basketball'})
+        ok = r.status_code < 300
+        err = f'HTTP {r.status_code}'
+    except requests.RequestException as e:
+        ok, err = False, type(e).__name__        # the exception text can hold the URL with the topic: not logged
+    if ok:
         SENT.append((text, 'sent'))
+    else:
+        log('SEND FAIL:', err)
+        SENT.append((text, f'push FAILED ({err})'))
+
+
+def fetch(args):
+    """fetch_espn.py, or in a test replay the saved file it would write."""
+    if REPLAY and os.path.exists(args[2]):
+        log(f'$ {" ".join(args)} (replay: saved file used, no ESPN pull)')
+        return subprocess.CompletedProcess(args, 0, '', '')
+    return run(args)
 
 
 def num(pattern, text, default=None):
@@ -104,7 +123,7 @@ def accept_core():
     print('Core list updated.')
     print('  added:  ', ', '.join(sorted(set(prop) - set(old))) or 'none')
     print('  removed:', ', '.join(sorted(set(old) - set(prop))) or 'none')
-    print('Tell Claude to update claude/core_list.json in the project.')
+    print('The workflow saves core_list.json (encrypted) in data/.')
 
 
 def season_lines(sea):
@@ -131,11 +150,11 @@ def season_lines(sea):
             told = ''
         if key != told:                      # message a core change once, not every day
             lines.append('Core change: add ' + (', '.join(core['add']) or 'none') + '; remove ' +
-                         (', '.join(core['remove']) or 'none') + '. To accept: Accept FBB Core.')
+                         (', '.join(core['remove']) or 'none') + '. To accept: run the workflow with accept_core.')
             if not DRY:
                 open('core_notified.txt', 'w').write(key)
             why.append('core')
-    for t in (sea.get('trades', [])[:1] if NOW.weekday() == 6 else []):   # iMessage: best idea, Sundays
+    for t in (sea.get('trades', [])[:1] if NOW.weekday() == 6 else []):   # push: best idea, Sundays
         lines.append('Trade idea: ' + trade_text(t) + '.')
     if sea.get('trades') and NOW.weekday() == 6:
         why.append('trade')
@@ -174,12 +193,18 @@ def history(sea):
 
 def main():
     # 1. pull data
-    r = run(['fetch_espn.py', 'config.json', 'raw_snapshot.json'])
+    r = fetch(['fetch_espn.py', 'config.json', 'raw_snapshot.json'])
+    try:
+        st = json.load(open('raw_snapshot.json')).get('stability')
+        if st:
+            log('ESPN STABILITY:', json.dumps(st))
+    except (OSError, ValueError):
+        pass
     if r.returncode == 2:
-        send('FBB sync: ESPN does not accept the login cookie. Update espn_s2 and SWID in config.json.')
+        send('FBB sync: ESPN does not accept the login cookie. Update the ESPN_S2 and ESPN_SWID secrets in GitHub.')
         return
     if r.returncode:
-        send('FBB sync: ESPN data pull failed. See the log in the morning-fbb logs folder.')
+        send('FBB sync: ESPN data pull failed. See the log on the Sync page.')
         return
 
     # 2. season check first: upgrades get priority over this week's streams
@@ -285,7 +310,7 @@ def main():
                          f'punt {", ".join(k for k, v in cats.items() if v < 0.2) or "none"}.')
     elif sunday:
         mp = int(re.match(r'MP(\d+)', head).group(1))
-        if run(['fetch_espn.py', 'config.json', 'raw_next.json', str(mp + 1)]).returncode == 0:
+        if fetch(['fetch_espn.py', 'config.json', 'raw_next.json', str(mp + 1)]).returncode == 0:
             r2 = run(['daily_run.py', 'raw_next.json', SCHED, CORE])
             cats = cats_line(r2.stdout)
             if cats:
@@ -306,8 +331,18 @@ def main():
         send('\n'.join(msg) if msg else f'FBB sync: no action. P(win) {pct(p0 or 0)}.')
     else:
         log('Silent: nothing to report.')
-    report(out, head, p0, verdicts, proposed, lineup, inj, crowded,
-           [l for l in lines if l.startswith('Next week')], reasons, sea, delta, p_today)
+    args = (out, head, p0, verdicts, proposed, lineup, inj, crowded,
+            [l for l in lines if l.startswith('Next week')], reasons, sea, delta, p_today)
+    if REPORT_DIR:   # both reports to files for the web page; the short one also to the screen
+        global FULL
+        for FULL, name in ((False, 'report_short.txt'), (True, 'report_full.txt')):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                report(*args)
+            open(os.path.join(REPORT_DIR, name), 'w').write(buf.getvalue())
+        print(open(os.path.join(REPORT_DIR, 'report_short.txt')).read(), end='')
+    else:
+        report(*args)
 
 
 # ---------- screen report ----------
@@ -367,7 +402,7 @@ def compact(out, pl, verdicts, lineup, sea):
         core = sea.get('core') or {}
         if core.get('add') or core.get('remove'):
             row('Fix', c('core change proposed: add ' + (', '.join(core['add']) or 'none') + '; remove '
-                         + (', '.join(core['remove']) or 'none') + '. To accept: y at the prompt below', YELLOW))
+                         + (', '.join(core['remove']) or 'none') + '. To accept: run the workflow with accept_core', YELLOW))
     elif sea is not None:
         row('Fix', c('season check failed, see the log', RED))
     print()
@@ -460,7 +495,7 @@ def report(out, head, p0, verdicts, proposed, lineup, inj, crowded, extra, reaso
         if core.get('add') or core.get('remove'):
             row('Core', c('change proposed: add ' + (', '.join(core['add']) or 'none') + '; remove '
                           + (', '.join(core['remove']) or 'none'), YELLOW))
-            row('', 'To accept: y at the prompt below, or the Accept FBB Core launcher')
+            row('', 'To accept: run the workflow with accept_core')
         else:
             row('Core', c('no change', GREEN))
         for t in sea.get('trades', []):
@@ -493,9 +528,9 @@ def report(out, head, p0, verdicts, proposed, lineup, inj, crowded, extra, reaso
         row('Note', l)
     if SENT:
         txt, st = SENT[-1]
-        row('iMessage', c(st, GREEN if st == 'sent' else YELLOW) + f' ({", ".join(reasons)})')
+        row('Push', c(st, GREEN if st == 'sent' else YELLOW) + f' ({", ".join(reasons)})')
     else:
-        row('iMessage', c('not sent (nothing to report)', DIM))
+        row('Push', c('not sent (nothing to report)', DIM))
 
 
 if __name__ == '__main__':
