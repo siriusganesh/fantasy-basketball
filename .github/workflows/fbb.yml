@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       accept_core:
-        description: 'Only accept the core list change proposed by the last run'
+        description: 'Accept the core list change proposed by the last run, then sync'
         type: boolean
         default: false
       rekey:
@@ -56,9 +56,14 @@ jobs:
       - name: Decrypt state
         run: python tools/vault.py unpack
 
+      - name: Accept core
+        if: ${{ inputs.accept_core }}
+        working-directory: app
+        run: python morning_fbb.py --accept-core > /dev/null
+
       - name: Sync (output to files only)
         id: sync
-        if: ${{ !inputs.accept_core && !inputs.rekey }}
+        if: ${{ !inputs.rekey }}
         working-directory: app
         env:
           ESPN_S2: ${{ secrets.ESPN_S2 }}
@@ -81,11 +86,6 @@ jobs:
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > ../out/run.json
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           echo "morning_fbb.py exit code $rc (details on the web page)"
-
-      - name: Accept core
-        if: ${{ inputs.accept_core }}
-        working-directory: app
-        run: python morning_fbb.py --accept-core > /dev/null
 
       - name: Re-encrypt with the new password
         if: ${{ inputs.rekey }}

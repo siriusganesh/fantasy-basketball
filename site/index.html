@@ -233,18 +233,26 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
     <div class="runbar">
       <div class="grow">
         <div style="font-weight:600">Sync</div>
-        <div class="dim cap">GitHub Actions pulls ESPN data every day at 05:16 and plans for today, or for tomorrow after the first tip. Read-only: it makes no ESPN moves.</div>
+        <div class="dim cap">GitHub Actions pulls ESPN data at 05:16, 15:46 and 19:46 and plans for today, or for tomorrow after the first tip. Read-only: it makes no ESPN moves. A sync takes about 3 to 4 minutes.</div>
       </div>
       <button class="btn ghost" id="full" type="button" aria-pressed="false">Show full report</button>
-      <a class="btn primary" id="run" target="_blank" rel="noopener">Run now on GitHub</a>
+      <label class="switch"><input type="checkbox" id="send" role="switch"> <span>Send push</span></label>
+      <button class="btn primary" id="run" type="button">Sync now</button>
     </div>
-    <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry"></span> <span id="status" class="dim"></span></div>
+    <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry"></span> <span id="status" class="dim"></span> <span id="runInfo"></span></div>
+    <details class="help" id="tokWrap" style="margin-top:8px"><summary>GitHub token for "Sync now"</summary>
+      <div class="cap dim" style="margin:8px 0">Fine-grained token for siriusganesh/fantasy-basketball only, permission Actions: read and write.
+        It is kept only in this browser, encrypted with the page password. <a id="ghLink" target="_blank" rel="noopener">Open the workflow on GitHub</a></div>
+      <div class="runbar"><input type="password" id="tok" class="grow" autocomplete="off" aria-label="GitHub token" placeholder="github_pat_..." style="padding:10px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
+        <button class="btn" id="tokSave" type="button">Save</button><button class="btn ghost" id="tokForget" type="button">Forget</button></div>
+      <div class="cap" id="tokMsg"></div>
+    </details>
   </div>
 
   <div class="banner warn" id="corebar" style="margin-top:16px" hidden>
     <div class="grow"><b>Core change proposed.</b> <span id="coretext"></span></div>
     <button class="btn" id="accept">Accept core change</button>
-    <a class="btn warn" id="acceptYes" target="_blank" rel="noopener" hidden>Open workflow (tick accept_core)</a>
+    <button class="btn warn" id="acceptYes" type="button" hidden>Confirm accept</button>
     <button class="btn ghost" id="acceptNo" hidden>Cancel</button>
   </div>
 
@@ -315,8 +323,8 @@ const REPO = 'siriusganesh/fantasy-basketball', WORKFLOW = 'https://github.com/'
 const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 let B = null;   // decrypted bundle
 const ub64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-async function openBundle(pw) {
-  const e = await (await fetch('site.enc', {cache: 'no-store'})).json();
+async function openBundle(pw, q = '') {
+  const e = await (await fetch('site.enc' + q, {cache: 'no-store'})).json();
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
   const k = await crypto.subtle.deriveKey({name:'PBKDF2', hash:'SHA-256', salt: ub64(e.salt), iterations: e.iter}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM', iv: ub64(e.iv)}, k, ub64(e.ct))));
@@ -383,8 +391,7 @@ const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[
 let showFull = false;
 function showSync() {
   const r = B.run || {};
-  $('#run').href = WORKFLOW;
-  $('#acceptYes').href = WORKFLOW;
+  $('#ghLink').href = WORKFLOW;
   $('#modeTag').className = 'mode ' + (r.sent === 'true' ? 'live' : 'dry');
   $('#modeTag').textContent = r.sent === 'true' ? 'Push on for this run (same rules as before)' : 'Push off for this run';
   const when = B.built ? 'Last sync ' + ago(B.built) + ' (' + new Date(B.built).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ', ' + (r.event || '?') + ')' : '';
@@ -399,7 +406,88 @@ $('#full').onclick = () => { showFull = !showFull; $('#full').setAttribute('aria
 const confirmUI = on => { $('#accept').hidden = on; $('#acceptYes').hidden = !on; $('#acceptNo').hidden = !on; if (on) $('#acceptYes').focus(); };
 $('#accept').onclick = () => confirmUI(true);
 $('#acceptNo').onclick = () => confirmUI(false);
-$('#acceptYes').onclick = () => confirmUI(false);
+$('#acceptYes').onclick = () => { confirmUI(false); dispatch({accept_core: 'true'}, 'Accept core'); };
+
+// ---------------- "Sync now": start the workflow with the GitHub API (token kept in this browser only)
+// The token is AES-GCM encrypted with a key from the page password (PBKDF2, same as the data), in localStorage.
+let PW = null;
+const GH = 'https://api.github.com/repos/' + REPO + '/actions';
+const b64e = u => btoa(String.fromCharCode(...new Uint8Array(u)));
+async function pwKey(salt) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(PW), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', hash:'SHA-256', salt, iterations: 600000}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+}
+async function saveToken(t) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await pwKey(salt), new TextEncoder().encode(t));
+  localStorage.setItem('fbbGhTok', JSON.stringify({salt: b64e(salt), iv: b64e(iv), ct: b64e(ct)}));
+}
+async function loadToken() {
+  let e; try { e = JSON.parse(localStorage.getItem('fbbGhTok') || 'null'); } catch (x) { return null; }
+  if (!e) return null;
+  try { return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM', iv: ub64(e.iv)}, await pwKey(ub64(e.salt)), ub64(e.ct))); }
+  catch (x) { return null; }   // saved with another password
+}
+async function gh(path, token, opt = {}) {
+  const r = await fetch(GH + path, Object.assign({}, opt, {headers: {Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}}));
+  if (r.status === 401) throw new Error('GitHub did not accept the token (expired or wrong). Save a new one below.');
+  if (r.status === 403 || r.status === 404) throw new Error('The token has no Actions write permission for this repo.');
+  if (!r.ok) throw new Error('GitHub API error ' + r.status);
+  return r.status === 204 ? null : r.json().catch(() => null);
+}
+const say = (t, cls = 'dim') => { $('#status').textContent = t; $('#status').className = cls; };
+let syncing = false;
+async function dispatch(inputs, label) {
+  if (syncing) return;
+  const token = await loadToken();
+  if (!token) { $('#tokWrap').open = true; $('#tok').focus(); $('#tokMsg').textContent = 'Save a GitHub token first.'; return; }
+  syncing = true; $('#run').disabled = true; $('#accept').disabled = true; $('#runInfo').textContent = '';
+  const t0 = Date.now() - 15000;
+  try {
+    say(label + ': starting ...');
+    const d = await gh('/workflows/fbb.yml/dispatches', token, {method: 'POST', body: JSON.stringify({ref: 'main', inputs})});
+    let id = d && d.workflow_run_id, run = null;
+    for (let i = 0; i < 120; i++) {           // up to 20 minutes
+      await new Promise(ok => setTimeout(ok, i ? 10000 : 4000));
+      if (id) run = await gh('/runs/' + id, token);
+      else {
+        const l = await gh('/workflows/fbb.yml/runs?event=workflow_dispatch&per_page=5', token);
+        run = (l.workflow_runs || []).find(x => Date.parse(x.created_at) >= t0) || null;
+        if (run) id = run.id;
+      }
+      if (!run) { say(label + ': waiting for GitHub to start the run ...'); continue; }
+      $('#runInfo').replaceChildren(el('a', {href: run.html_url, target: '_blank', rel: 'noopener', textContent: 'run on GitHub'}));
+      if (run.status !== 'completed') { say(label + ': ' + String(run.status || 'waiting').replace('_', ' ') + ' (' + Math.round((Date.now() - Date.parse(run.created_at)) / 1000) + ' s)'); continue; }
+      if (run.conclusion !== 'success') throw new Error('the run ended: ' + run.conclusion + '. See the run on GitHub.');
+      break;
+    }
+    if (!run || run.status !== 'completed') throw new Error('no result after 20 minutes. See Actions on GitHub.');
+    say(label + ': done. Loading the new data ...');
+    for (let i = 0; i < 18; i++) {             // the Pages CDN can serve the old file for a short time
+      const nb = await openBundle(PW, '?t=' + Date.now()).catch(() => null);
+      if (nb && Date.parse(nb.built) >= t0) {
+        try { sessionStorage.setItem('fbbPwOnce', PW); } catch (e) {}
+        location.reload(); return;
+      }
+      await new Promise(ok => setTimeout(ok, 10000));
+    }
+    throw new Error('the run is done, but the page still has the old data. Reload in a minute.');
+  } catch (e) {
+    say(label + ': ' + e.message, 'neg');
+  } finally {
+    syncing = false; $('#run').disabled = false; $('#accept').disabled = false;
+  }
+}
+$('#run').onclick = () => dispatch({send: String($('#send').checked)}, 'Sync');
+$('#send').onchange = () => { $('#run').textContent = $('#send').checked ? 'Sync now and push' : 'Sync now'; };
+$('#tokSave').onclick = async () => {
+  const t = $('#tok').value.trim();
+  if (!/^(github_pat_|ghp_)/.test(t)) { $('#tokMsg').textContent = 'This does not look like a GitHub token.'; return; }
+  try { await gh('/workflows/fbb.yml', t); } catch (e) { $('#tokMsg').textContent = e.message; return; }
+  await saveToken(t); $('#tok').value = ''; $('#tokMsg').textContent = 'Saved. GitHub accepted the token.'; tokState();
+};
+$('#tokForget').onclick = () => { try { localStorage.removeItem('fbbGhTok'); } catch (e) {} $('#tokMsg').textContent = 'Removed from this browser.'; tokState(); };
+async function tokState() { const has = !!(await loadToken()); $('#tokWrap').querySelector('summary').textContent = 'GitHub token for "Sync now": ' + (has ? 'saved' : 'not set'); }
 
 // The script prints "label (13 chars) + text". Turn those rows into a readable grid; keep the raw text in a fold.
 const LABW = 13;
@@ -697,17 +785,21 @@ async function start() {
   try { const t = localStorage.getItem('fbbTab'); if (t && $('#' + t)) showTab($('#' + t)); } catch (e) {}
 }
 async function unlock(pw, remember) {
-  B = await openBundle(pw);
+  B = await openBundle(pw, '?t=' + Date.now());
+  PW = pw;
   try { if (remember) localStorage.setItem('fbbPw', pw); } catch (e) {}
   $('#lock').remove();
-  start();
+  start(); tokState();
 }
 $('#lockForm').onsubmit = async e => {
   e.preventDefault(); $('#lockMsg').textContent = 'Opening ...';
   try { await unlock($('#pw').value, $('#remember').checked); }
   catch (err) { $('#lockMsg').textContent = err.name === 'OperationError' ? 'Wrong password.' : 'Could not open: ' + err.message; }
 };
-try { const pw = localStorage.getItem('fbbPw'); if (pw) unlock(pw, false).catch(() => { try { localStorage.removeItem('fbbPw'); } catch (e) {} }); } catch (e) {}
+let autoPw = null;   // after "Sync now" the page reloads once with the password from this tab; else a remembered password
+try { autoPw = sessionStorage.getItem('fbbPwOnce'); sessionStorage.removeItem('fbbPwOnce'); } catch (e) {}
+try { if (!autoPw) autoPw = localStorage.getItem('fbbPw'); } catch (e) {}
+if (autoPw) unlock(autoPw, false).catch(() => { try { localStorage.removeItem('fbbPw'); } catch (e) {} });
 $('#pw').focus();
 </script>
 </body>

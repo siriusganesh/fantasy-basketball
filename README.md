@@ -35,7 +35,10 @@ Settings > Pages > Source: **GitHub Actions**.
 
 ## Run by hand
 
-Actions > FBB sync > Run workflow. Inputs: `send` (push on), `accept_core` (accept the proposed core list), `rekey`.
+On the page: **Sync now** (switch **Send push** for the push). It needs a fine-grained GitHub token for this repo only,
+permission Actions: read and write, saved once per browser (encrypted with the page password, never committed).
+
+Or Actions > FBB sync > Run workflow. Inputs: `send` (push on), `accept_core` (accept the proposed core list, then sync), `rekey`.
 
 ## Change the password
 
