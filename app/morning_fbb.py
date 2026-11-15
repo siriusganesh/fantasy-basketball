@@ -15,7 +15,7 @@ Usage: python3 morning_fbb.py [--dry-run] [--force-send] [--trades]
   --accept-core  write the core list that the last run proposed into core_list.json, then stop
   --full         show the full screen report (default: short report with what to do)
 """
-import sys, os, re, ast, json, subprocess, datetime as dt, io, contextlib
+import sys, os, re, ast, json, subprocess, datetime as dt, io, contextlib, hashlib
 import requests
 from zoneinfo import ZoneInfo
 
@@ -24,6 +24,7 @@ os.chdir(HERE)
 PY = sys.executable
 SCHED = 'league_matchup_schedule_2026-27.csv'
 CORE = 'core_list.json'
+LAST_PUSH = 'last_push.txt'   # date and hash of the last push sent (no repeat of the same text on one day)
 
 # Rules from the cloud "Morning FBB" prompt (steps 5 and 6)
 P_EXTREME = (0.03, 0.97)   # no streams when P(win) with no moves is outside this range
@@ -68,6 +69,16 @@ def send(text):
     if DRY:
         SENT.append((text, 'dry run, not sent'))
         return
+    # 3 runs a day: send a text only once per day. --force-send ignores this.
+    key = NOW.strftime('%Y-%m-%d') + '\t' + hashlib.sha256(text.encode('utf-8')).hexdigest()
+    try:
+        last = open(LAST_PUSH).read().strip()
+    except OSError:
+        last = ''
+    if key == last and not FORCE:
+        log('Not sent: same text as the last push today.')
+        SENT.append((text, 'not sent, same as the last push today'))
+        return
     topic = os.environ.get('NTFY_TOPIC', '').strip()
     server = os.environ.get('NTFY_SERVER', 'https://ntfy.sh').rstrip('/')
     if not topic:
@@ -83,6 +94,7 @@ def send(text):
         ok, err = False, type(e).__name__        # the exception text can hold the URL with the topic: not logged
     if ok:
         SENT.append((text, 'sent'))
+        open(LAST_PUSH, 'w').write(key + '\n')
     else:
         log('SEND FAIL:', err)
         SENT.append((text, f'push FAILED ({err})'))

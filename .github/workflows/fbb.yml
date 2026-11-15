@@ -6,7 +6,10 @@ name: FBB sync
 
 on:
   schedule:
-    - cron: '16 12 * * *'   # 05:16 MST, same as the Mac launchd job. Cron is UTC: 06:16 after DST starts (Mar 14, 2027).
+    # Cron is UTC. Local times are MST; add 1 hour after DST starts (Mar 14, 2027).
+    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today (same as the Mac launchd job)
+    - cron: '46 22 * * *'   # 15:46: after afternoon injury reports, before weekday tips
+    - cron: '46 2 * * *'    # 19:46: after the first tip; plans tomorrow
   workflow_dispatch:
     inputs:
       send:

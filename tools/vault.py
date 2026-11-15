@@ -24,7 +24,7 @@ APP, DATA = os.path.join(ROOT, 'app'), os.path.join(ROOT, 'data')
 ITER = 600_000
 STATE = ['core_list.json', 'core_notified.txt', 'cat_weights.json', 'season_config.json', 'season.json',
          'history.csv', 'history_old_scale_to_2026-11-07.csv', 'trades_log.jsonl',
-         'league_matchup_schedule_2026-27.csv', 'draft_prices.json']
+         'league_matchup_schedule_2026-27.csv', 'draft_prices.json', 'last_push.txt']
 b64, unb64 = (lambda b: base64.b64encode(b).decode()), base64.b64decode
 
 
