@@ -121,6 +121,7 @@ tr.det td{background:var(--bg);font-size:12px}
 .mode.dry{background:var(--chip);color:var(--dim)}
 .mode.live{background:var(--warn-soft);color:var(--warn)}
 
+.rhead .grow{flex:1}
 .rhead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--s2);margin-bottom:var(--s2)}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:var(--s2)}
@@ -210,10 +211,9 @@ details.help p{max-width:760px;color:var(--dim)}
 #dock .res{font-weight:700}
 @media(max-width:560px){
   header h1,#pulled,.long{display:none}
+  .rhead .grow{order:3;flex-basis:100%}
   .hwrap{flex-wrap:nowrap;gap:var(--s1);min-height:48px}
   [role=tablist]{flex:1;min-width:0}
-  #theme{font-size:0;min-width:44px;justify-content:center;padding:0}
-  #theme::before{content:"\25D0";font-size:18px;line-height:1}
   #refresh{order:2}
 }
 @media(max-width:560px){.hwrap,main,#dock .in{padding-left:var(--s2);padding-right:var(--s2)}.rows{grid-template-columns:88px 1fr}}
@@ -244,7 +244,6 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
     </div>
     <span class="dim cap" id="pulled"></span>
     <button class="btn" id="refresh" type="button" aria-label="Check for new data" title="Check for new data"><span aria-hidden="true">&#8635;</span></button>
-    <button class="btn" id="theme" type="button" aria-live="polite">Theme: System</button>
   </div>
 </header>
 
@@ -257,13 +256,14 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
         <div style="font-weight:600">Sync</div>
         <div class="dim cap">Automatic at 05:16, 15:46 and 19:46. Read-only on ESPN. Sync now takes 3 to 4 minutes.</div>
       </div>
-      <button class="btn ghost" id="full" type="button" aria-pressed="false">Show full report</button>
       <label class="switch"><input type="checkbox" id="send" role="switch"> <span>Send push</span></label>
       <button class="btn primary" id="run" type="button">Sync now</button>
     </div>
     <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry"></span> <span id="status" class="dim"></span> <span id="runInfo"></span></div>
-    <details class="help" id="tokWrap" style="margin-top:8px"><summary>GitHub token for "Sync now"</summary>
-      <div class="cap dim" style="margin:8px 0">Fine-grained token for siriusganesh/fantasy-basketball only, permission Actions: read and write.
+    <details class="help" id="tokWrap" style="margin-top:8px"><summary>Settings <span class="dim" id="tokSum"></span></summary>
+      <div class="runbar" style="margin-top:8px"><span class="grow">Theme</span><button class="btn" id="theme" type="button" aria-live="polite">Theme: System</button></div>
+      <div style="font-weight:600;margin-top:12px">GitHub token for "Sync now"</div>
+      <div class="cap dim" style="margin:4px 0 8px">Fine-grained token for siriusganesh/fantasy-basketball only, permission Actions: read and write.
         It is kept only in this browser, encrypted with the page password. <a id="ghLink" target="_blank" rel="noopener">Open the workflow on GitHub</a></div>
       <div class="runbar"><input type="password" id="tok" class="grow" autocomplete="off" aria-label="GitHub token" placeholder="github_pat_..." style="padding:10px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
         <button class="btn" id="tokSave" type="button">Save</button><button class="btn ghost" id="tokForget" type="button">Forget</button></div>
@@ -430,7 +430,6 @@ function showSync() {
   renderReport({html: esc(txt), label: 'Sync', running: false});
   if (B.log_today) { $('#logWrap').hidden = false; $('#logText').textContent = B.log_today; }
 }
-$('#full').onclick = () => { showFull = !showFull; $('#full').setAttribute('aria-pressed', String(showFull)); $('#full').textContent = showFull ? 'Show short report' : 'Show full report'; showSync(); };
 // Accepting a core change edits core_list.json: run the workflow with accept_core ticked (two clicks).
 const confirmUI = on => { $('#accept').hidden = on; $('#acceptYes').hidden = !on; $('#acceptNo').hidden = !on; if (on) $('#acceptYes').focus(); };
 $('#accept').onclick = () => confirmUI(true);
@@ -469,7 +468,7 @@ let syncing = false;
 async function dispatch(inputs, label) {
   if (syncing) return;
   const token = await loadToken();
-  if (!token) { $('#tokWrap').open = true; $('#tok').focus(); $('#tokMsg').textContent = 'Save a GitHub token first.'; return; }
+  if (!token) { $('#tokWrap').open = true; $('#tok').focus(); $('#tokMsg').textContent = 'Save a GitHub token first (Settings).'; return; }
   syncing = true; $('#run').disabled = true; $('#accept').disabled = true; $('#runInfo').textContent = '';
   const t0 = Date.now() - 15000;
   try {
@@ -532,7 +531,7 @@ $('#tokSave').onclick = async () => {
   await saveToken(t); $('#tok').value = ''; $('#tokMsg').textContent = 'Saved. GitHub accepted the token.'; tokState();
 };
 $('#tokForget').onclick = () => { try { localStorage.removeItem('fbbGhTok'); } catch (e) {} $('#tokMsg').textContent = 'Removed from this browser.'; tokState(); };
-async function tokState() { const has = !!(await loadToken()); $('#tokWrap').querySelector('summary').textContent = 'GitHub token for "Sync now": ' + (has ? 'saved' : 'not set'); }
+async function tokState() { const has = !!(await loadToken()); $('#tokSum').textContent = has ? '' : '(GitHub token not set)'; }
 
 // The script prints "label (13 chars) + text". Turn those rows into a readable grid; keep the raw text in a fold.
 const LABW = 13;
@@ -549,6 +548,9 @@ function catChips(frag, kind) {
   if (!items.length) return el('span', {className:'dim', textContent: txt});
   return el('div', {className:'chips'}, items.map(m => el('span', {className:'chip ' + kind}, m[1], el('b', {className:'num', textContent: m[2] + '%'}))));
 }
+const fullBtn = el('button', {className:'btn ghost', id:'full', type:'button', textContent:'Show full report'});
+fullBtn.setAttribute('aria-pressed', 'false');
+fullBtn.onclick = () => { showFull = !showFull; $('#full').setAttribute('aria-pressed', String(showFull)); $('#full').textContent = showFull ? 'Show short report' : 'Show full report'; showSync(); };
 function renderReport(j) {
   const box = $('#report');
   const lines = (j.html || '').split('\n');
@@ -597,16 +599,13 @@ function renderReport(j) {
   if (sea) { const m = sea.node.textContent.match(/value ([\d.-]+), rank (\d+) of (\d+)((?:, [\d.]+ (?:behind|ahead of) #\d+)*)(.*?\(([^)]*in 7 days)\))?/);
     if (m) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Season rank'}), el('div', {className:'headline num', textContent: m[2] + ' of ' + m[3]}),
       el('div', {className:'cap dim', textContent: 'value ' + m[1] + m[4] + (m[6] ? ', ' + m[6] : '')}))); }
-  const td = find('Today') || find('Tomorrow');
-  if (td) { const prop = /PROPOSED/.test(td.node.textContent);
-    kpis.push(el('div', {className:'kpi', style: prop ? 'border-color:var(--good)' : ''}, el('div', {className:'cap dim', textContent: td.label}),
-      el('div', {className:'headline ' + (prop ? 'pos' : '')}, prop ? td.subs.length + ' move' + (td.subs.length === 1 ? '' : 's') : 'No move'),
-      el('div', {className:'cap dim', textContent: prop ? 'proposed, see below' : td.node.textContent.trim()}))); }
+  const td = find('Today') || find('Tomorrow');   // shown first, in the "What to do" card (no KPI tile)
   const adds = sub.match(/adds (\d+) of (\d+)/);
   if (adds) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Adds used'}), el('div', {className:'headline num', textContent: adds[1] + ' of ' + adds[2]}), el('div', {className:'cap dim', textContent:'this matchup'})));
 
   const chipKind = {Winning:'good', 'Toss-up':'mid', Losing:'bad'};
-  const cards = sections.filter(s => s.length).map(sec => {
+  const todo = td ? sections.find(sec => sec.includes(td)) : null;
+  const cards = [todo, ...sections.filter(sec => sec !== todo)].filter(s => s && s.length).map(sec => {
     const rows = el('div', {className:'rows r'});
     for (const r of sec) {
       if (r.label === 'Win chance' || r.label === 'Details') continue;   // 'Details' = the old terminal hint; the button above shows the full report
@@ -615,11 +614,15 @@ function renderReport(j) {
       if ((r.label === 'Today' || r.label === 'Tomorrow') && /PROPOSED/.test(r.node.textContent)) cell.style.fontWeight = '600';
       rows.append(el('div', {className:'lab', textContent: r.label}), cell);
     }
-    return rows.children.length ? el('div', {className:'card', style:'margin:0'}, rows) : null;
+    if (!rows.children.length) return null;
+    return sec === todo ? el('div', {className:'card', style:'margin:0;border-color:var(--accent)'}, el('div', {style:'font-weight:600;margin-bottom:8px', textContent:'What to do'}), rows)
+                        : el('div', {className:'card', style:'margin:0'}, rows);
   }).filter(Boolean);
+  const todoCard = todo && cards.length ? cards.shift() : null;
   box.replaceChildren(
     ...pre.map(t => el('div', {className:'banner ' + (/fail|error/i.test(t) ? 'bad' : 'warn'), style:'margin-bottom:16px', textContent: t})),
-    el('div', {className:'rhead'}, el('p', {className:'headline', textContent:'Report'}), el('span', {className:'dim cap', textContent: title + (j.running ? '  (still running)' : '')})),
+    el('div', {className:'rhead'}, el('p', {className:'headline', textContent:'Report'}), el('span', {className:'dim cap grow', textContent: title + (j.running ? '  (still running)' : '')}), fullBtn),
+    todoCard ? el('div', {style:'margin-bottom:16px'}, todoCard) : '',
     kpis.length ? el('div', {className:'kpis'}, kpis) : '',
     el('div', {className:'sections'}, cards), raw);
 }
