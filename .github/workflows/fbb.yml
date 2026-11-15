@@ -7,7 +7,7 @@ name: FBB sync
 on:
   schedule:
     # Cron is UTC. Local times are MST; add 1 hour after DST starts (Mar 14, 2027).
-    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today
+    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today.
     - cron: '46 21 * * *'   # 14:46: afternoon injury reports
     - cron: '46 22 * * *'   # 15:46: more injury news, before weekday tips
     - cron: '31 23 * * *'   # 16:31: last check before the 17:00 weekday tips
