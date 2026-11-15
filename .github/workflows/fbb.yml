@@ -7,8 +7,10 @@ name: FBB sync
 on:
   schedule:
     # Cron is UTC. Local times are MST; add 1 hour after DST starts (Mar 14, 2027).
-    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today (same as the Mac launchd job)
-    - cron: '46 22 * * *'   # 15:46: after afternoon injury reports, before weekday tips
+    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today
+    - cron: '46 21 * * *'   # 14:46: afternoon injury reports
+    - cron: '46 22 * * *'   # 15:46: more injury news, before weekday tips
+    - cron: '31 23 * * *'   # 16:31: last check before the 17:00 weekday tips
     - cron: '46 2 * * *'    # 19:46: after the first tip; plans tomorrow
   workflow_dispatch:
     inputs:
@@ -38,6 +40,8 @@ jobs:
   sync:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      deploy: ${{ steps.build.outputs.deploy }}
     env:
       TZ: America/Denver
       FBB_PASSWORD: ${{ secrets.FBB_PASSWORD }}
@@ -116,13 +120,18 @@ jobs:
           git pull -q --rebase && git push -q
 
       - name: Build the site
+        id: build
         run: |
+          # site.enc (the page data) is not in git; it goes to Pages only. A run without it (rekey) does not deploy.
+          if [ ! -f data/site.enc ]; then echo "deploy=false" >> "$GITHUB_OUTPUT"; echo "no page data in this run: no deploy"; exit 0; fi
           mkdir -p _site
           cp site/* app/trade_eval.py _site/
           cp data/site.enc _site/
           touch _site/.nojekyll
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ steps.build.outputs.deploy == 'true' }}
         with:
           path: _site
 
@@ -132,7 +141,7 @@ jobs:
 
   deploy:
     needs: sync
-    if: ${{ always() && needs.sync.result != 'cancelled' }}
+    if: ${{ always() && needs.sync.result != 'cancelled' && needs.sync.outputs.deploy == 'true' }}
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

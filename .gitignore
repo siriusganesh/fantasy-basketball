@@ -11,3 +11,5 @@ app/*.txt
 app/logs/
 out/
 _site/
+# page data: deployed to Pages by the workflow, not kept in git history
+data/site.enc
