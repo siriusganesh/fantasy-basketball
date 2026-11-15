@@ -13,6 +13,7 @@
 <title>FBB Control</title>
 <script>
 // apply the saved theme before the page draws, so it does not flash
+try { if (sessionStorage.getItem('fbbPwOnce') || localStorage.getItem('fbbPw')) document.documentElement.classList.add('auto'); } catch (e) {}   // saved password: show "Loading" in place of the password form
 try { const t = localStorage.getItem('fbbTheme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
 </script>
 <style>
@@ -220,11 +221,13 @@ details.help p{max-width:760px;color:var(--dim)}
 #lock{position:fixed;inset:0;z-index:9;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:var(--s2)}
 #lock form{max-width:360px;width:100%}
 #lock input[type=password]{width:100%;box-sizing:border-box;margin:var(--s1) 0;padding:10px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+#lockWait,html.auto #lockForm{display:none}
+html.auto #lockWait{display:block}
 a.btn{text-decoration:none;display:inline-flex;align-items:center}
 </style>
 </head>
 <body>
-<div id="lock"><form class="card" id="lockForm">
+<div id="lock"><div id="lockWait" class="dim cap">Loading ...</div><form class="card" id="lockForm">
   <div style="font-weight:600">FBB Control</div>
   <div class="dim cap">The data on this page is encrypted. Enter the password to read it in this browser.</div>
   <input type="password" id="pw" autocomplete="current-password" aria-label="Password" required>
@@ -841,7 +844,7 @@ $('#lockForm').onsubmit = async e => {
 let autoPw = null;   // after "Sync now" the page reloads once with the password from this tab; else a remembered password
 try { autoPw = sessionStorage.getItem('fbbPwOnce'); sessionStorage.removeItem('fbbPwOnce'); } catch (e) {}
 try { if (!autoPw) autoPw = localStorage.getItem('fbbPw'); } catch (e) {}
-if (autoPw) unlock(autoPw, false).catch(() => { try { localStorage.removeItem('fbbPw'); } catch (e) {} });
+if (autoPw) unlock(autoPw, false).catch(() => { try { localStorage.removeItem('fbbPw'); } catch (e) {} document.documentElement.classList.remove('auto'); $('#pw').focus(); });
 $('#pw').focus();
 </script>
 </body>
