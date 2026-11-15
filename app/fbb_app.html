@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBB Control</title>
+<script>
+// apply the saved theme before the page draws, so it does not flash
+try { const t = localStorage.getItem('fbbTheme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+/* Tokens. Spacing is on an 8px grid. Three type sizes: 22 (headline), 14 (body), 12 (caption). */
+:root{
+  --bg:#f6f5f1;--panel:#fff;--ink:#1d1d1b;--dim:#6b6962;--line:#dcdad2;--chip:#ecebe4;
+  --accent:#1f5f4a;--accent-ink:#fff;--accent-soft:#e3efe9;
+  --good:#1b7a43;--good-soft:#e2f2e8;--bad:#b3261e;--bad-soft:#fbe7e5;--warn:#8a5f00;--warn-soft:#fbf1d9;
+  --focus:#2f6fdb;--shadow:0 1px 2px rgba(0,0,0,.06);
+  --s1:8px;--s2:16px;--s3:24px;--s4:32px;
+}
+/* Theme: no data-theme = follow the Mac setting; data-theme="light"/"dark" = the header toggle */
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#161715;--panel:#1f211e;--ink:#e8e7e1;--dim:#a3a198;--line:#33352f;--chip:#2a2c28;
+  --accent:#6cc4a1;--accent-ink:#0f1a15;--accent-soft:#1f3329;
+  --good:#5fd08a;--good-soft:#1c3123;--bad:#ff8a80;--bad-soft:#3a1f1d;--warn:#e6b84d;--warn-soft:#352b14;
+  --focus:#8ab4ff;--shadow:none;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#161715;--panel:#1f211e;--ink:#e8e7e1;--dim:#a3a198;--line:#33352f;--chip:#2a2c28;
+  --accent:#6cc4a1;--accent-ink:#0f1a15;--accent-soft:#1f3329;
+  --good:#5fd08a;--good-soft:#1c3123;--bad:#ff8a80;--bad-soft:#3a1f1d;--warn:#e6b84d;--warn-soft:#352b14;
+  --focus:#8ab4ff;--shadow:none;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+.num{font-variant-numeric:tabular-nums}
+.cap{font-size:12px}
+.dim{color:var(--dim)}
+.pos{color:var(--good)}.neg{color:var(--bad)}.wrn{color:var(--warn)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* Header */
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.hwrap{max-width:1200px;margin:0 auto;padding:0 var(--s3);display:flex;align-items:center;gap:var(--s3);min-height:56px;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+[role=tablist]{display:flex;gap:var(--s1);align-self:stretch}
+[role=tab]{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:0 var(--s1);cursor:pointer;min-height:44px}
+[role=tab][aria-selected=true]{color:var(--ink);border-color:var(--accent);font-weight:600}
+#pulled{margin-left:auto}
+#theme{min-height:32px;padding:0 12px;font-size:12px}
+
+main{max-width:1200px;margin:0 auto;padding:var(--s3) var(--s3) 120px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:var(--s2);box-shadow:var(--shadow)}
+.card + .card{margin-top:var(--s2)}
+.builder .card{margin:0}
+h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 var(--s1);font-weight:600}
+.headline{font-size:22px;font-weight:700;line-height:1.25;margin:0}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:var(--s1);min-height:40px;padding:0 var(--s2);border-radius:8px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-weight:500}
+.btn:hover:not(:disabled){background:var(--chip)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--accent)}
+.btn.warn{background:var(--warn);color:var(--panel);border-color:var(--warn);font-weight:600}
+.btn.ghost{border-color:transparent;background:none}
+.btn:disabled{opacity:.5;cursor:default}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+/* Switch */
+.switch{display:inline-flex;align-items:center;gap:var(--s1);cursor:pointer;min-height:44px}
+.switch input{appearance:none;width:36px;height:20px;border-radius:10px;background:var(--line);position:relative;cursor:pointer;margin:0;flex:none;transition:background .15s}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.switch input:checked{background:var(--accent)}
+.switch input:checked::after{left:18px}
+
+/* Banners */
+.banner{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;border-radius:10px;padding:12px var(--s2);border:1px solid}
+.banner.warn{background:var(--warn-soft);border-color:var(--warn);color:var(--ink)}
+.banner.bad{background:var(--bad-soft);border-color:var(--bad)}
+.banner .grow{flex:1;min-width:220px}
+
+/* ---------- League ---------- */
+.lwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.lg{width:100%;border-collapse:collapse;min-width:600px}
+table.lg th{font-size:12px;font-weight:600;color:var(--dim);text-align:left;padding:var(--s1);border-bottom:1px solid var(--line);vertical-align:bottom}
+table.lg td{padding:var(--s1);border-top:0;border-bottom:1px solid var(--line);vertical-align:middle;text-align:left;height:auto}
+table.lg tr.team{cursor:pointer}
+table.lg tr.team:hover td{background:var(--chip)}
+table.lg tr.me td{background:var(--accent-soft);font-weight:600;cursor:default}
+table.lg td.r,table.lg th.r{text-align:right}
+.pw{display:inline-block;min-width:52px;text-align:center;border-radius:6px;padding:2px 6px;font-weight:600;font-variant-numeric:tabular-nums}
+.pw.good{background:var(--good-soft);color:var(--good)}.pw.mid{background:var(--warn-soft);color:var(--warn)}.pw.bad{background:var(--bad-soft);color:var(--bad)}
+.catrow{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.cat{font-size:12px;border-radius:6px;padding:2px 6px;font-variant-numeric:tabular-nums}
+.cat.good{background:var(--good-soft);color:var(--good)}.cat.mid{background:var(--warn-soft);color:var(--warn)}.cat.bad{background:var(--bad-soft);color:var(--bad)}
+tr.det td{background:var(--bg);font-size:12px}
+.lnote{margin-top:var(--s1)}
+
+/* ---------- Morning check ---------- */
+.runbar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
+.runbar .grow{flex:1;min-width:200px}
+#status{display:inline-flex;align-items:center;gap:var(--s1)}
+.mode{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.mode.dry{background:var(--chip);color:var(--dim)}
+.mode.live{background:var(--warn-soft);color:var(--warn)}
+
+.rhead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--s2);margin-bottom:var(--s2)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:var(--s2)}
+.kpi .headline{margin-top:4px}
+.sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:var(--s2);align-items:start}
+@media(max-width:560px){.sections{grid-template-columns:1fr}}
+.rows{display:grid;grid-template-columns:112px 1fr;column-gap:var(--s2)}
+.rows > div{padding:6px 0;border-top:1px solid var(--line)}
+.rows > .lab{color:var(--dim)}
+.rows > div:nth-child(1),.rows > div:nth-child(2){border-top:0}
+.rows .sub{display:block;margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{display:inline-flex;gap:4px;align-items:center;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--chip)}
+.chip.good{background:var(--good-soft);color:var(--good)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.chip.mid{background:var(--warn-soft);color:var(--warn)}
+.r .b{font-weight:700}.r .dim{color:var(--dim)}.r .red{color:var(--bad)}.r .green{color:var(--good)}.r .yellow{color:var(--warn)}
+details.raw{margin-top:var(--s2)}
+details.raw summary{cursor:pointer;color:var(--dim);min-height:32px;display:flex;align-items:center}
+pre.term{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:var(--s2);overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;margin:var(--s1) 0 0}
+.empty{text-align:center;padding:var(--s4) var(--s2);color:var(--dim)}
+
+/* ---------- Trade analyzer ---------- */
+.ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--s2)}
+.idea{display:flex;flex-direction:column;gap:var(--s1);text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px var(--s2);cursor:pointer}
+.idea:hover{border-color:var(--accent)}
+.idea[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.idea .swap{display:grid;grid-template-columns:auto 1fr;column-gap:var(--s1)}
+.idea .val{font-weight:700}
+.sect{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);margin:var(--s3) 0 var(--s1)}
+.sect h2{margin:0}
+
+.builder{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}
+@media(max-width:860px){.builder{grid-template-columns:1fr}}
+.side{display:flex;flex-direction:column;gap:12px}
+.side .top{display:flex;gap:var(--s1);align-items:center}
+.side .letter{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--chip);font-weight:700;font-size:12px}
+.side select{flex:1;min-height:40px;padding:0 var(--s1);border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+.tray{min-height:40px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px var(--s1);border:1px dashed var(--line);border-radius:8px}
+.tray .ph{color:var(--dim);font-size:12px}
+.pick{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 10px;border-radius:14px;background:var(--accent-soft);border:1px solid var(--accent)}
+.pick button{border:0;background:none;cursor:pointer;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:var(--dim)}
+.pick button:hover{background:var(--chip);color:var(--ink)}
+.filter{min-height:36px;padding:0 var(--s1);border:1px solid var(--line);border-radius:8px;background:var(--bg);width:100%}
+table{border-collapse:collapse;width:100%}
+th{font-size:12px;color:var(--dim);font-weight:600;text-align:right;padding:6px;white-space:nowrap;border-bottom:1px solid var(--line)}
+th abbr{text-decoration:underline dotted;cursor:help}
+td{padding:0 6px;height:40px;border-top:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left;padding-left:0}
+tbody tr:first-child td{border-top:0}
+.roster tr{cursor:pointer}
+.roster tr:hover td{background:var(--chip)}
+.roster tr.on td{background:var(--accent-soft)}
+.roster label{display:flex;align-items:center;gap:var(--s1);cursor:pointer;min-height:40px}
+.roster input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0 0 0 6px;flex:none}
+.pname{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.tag{font-size:12px;padding:0 6px;border-radius:8px;background:var(--chip);color:var(--dim);line-height:18px}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.anchor{background:var(--accent-soft);color:var(--accent)}
+td.lo{color:var(--dim)}
+
+/* Verdict */
+#verdict{margin-top:var(--s3)}
+.vhead{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;padding:var(--s2);border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.vhead.win-me{border-color:var(--good);background:var(--good-soft)}
+.vhead.lose-me{border-color:var(--bad);background:var(--bad-soft)}
+.vhead .grow{flex:1;min-width:220px}
+ul.notes{margin:var(--s1) 0 0;padding-left:18px}
+ul.notes li{color:var(--warn)}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-top:var(--s2)}
+@media(max-width:860px){.sides{grid-template-columns:1fr}}
+.sides table td{height:32px}
+.sides .flow{margin:0 0 var(--s1)}
+.catwrap{overflow-x:auto}
+.cat td,.cat th{text-align:center}
+.cat td:first-child,.cat th:first-child{text-align:left}
+.cell{display:inline-block;min-width:52px;padding:2px 6px;border-radius:6px}
+.cell.p{background:var(--good-soft);color:var(--good)}.cell.n{background:var(--bad-soft);color:var(--bad)}
+details.help{margin-top:var(--s3)}
+details.help summary{cursor:pointer;color:var(--dim)}
+details.help p{max-width:760px;color:var(--dim)}
+
+/* Sticky summary for the trade being built */
+#dock{position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06)}
+#dock .in{max-width:1200px;margin:0 auto;padding:12px var(--s3);display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
+#dock .grow{flex:1;min-width:200px}
+#dock .res{font-weight:700}
+@media(max-width:560px){.hwrap,main,#dock .in{padding-left:var(--s2);padding-right:var(--s2)}.rows{grid-template-columns:88px 1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <h1>FBB Control</h1>
+    <div role="tablist" aria-label="Views">
+      <button role="tab" id="t-morning" aria-controls="tab-morning" aria-selected="true">Sync</button>
+      <button role="tab" id="t-trade" aria-controls="tab-trade" aria-selected="false" tabindex="-1">Trade analyzer</button>
+      <button role="tab" id="t-league" aria-controls="tab-league" aria-selected="false" tabindex="-1">League</button>
+    </div>
+    <span class="dim cap" id="pulled"></span>
+    <button class="btn" id="theme" type="button" aria-live="polite">Theme: System</button>
+  </div>
+</header>
+
+<main>
+<!-- ================= Morning check ================= -->
+<section role="tabpanel" id="tab-morning" aria-labelledby="t-morning">
+  <div class="card">
+    <div class="runbar">
+      <div class="grow">
+        <div style="font-weight:600">Sync</div>
+        <div class="dim cap">Pulls ESPN data and plans for today, or for tomorrow after the first tip of the day. Takes about one minute.</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="send" role="switch"> <span>Send iMessage</span></label>
+      <button class="btn primary" id="run"><span id="runLabel">Run dry check</span></button>
+    </div>
+    <div class="cap" style="margin-top:8px" aria-live="polite"><span id="modeTag" class="mode dry">Dry run: nothing is sent</span> <span id="status" class="dim"></span></div>
+  </div>
+
+  <div class="banner warn" id="corebar" style="margin-top:16px" hidden>
+    <div class="grow"><b>Core change proposed.</b> <span id="coretext"></span></div>
+    <button class="btn" id="accept">Accept core change</button>
+    <button class="btn warn" id="acceptYes" hidden>Confirm accept</button>
+    <button class="btn ghost" id="acceptNo" hidden>Cancel</button>
+  </div>
+
+  <div id="report" style="margin-top:24px">
+    <div class="card empty" id="reportEmpty">No report yet. Press <b>Run dry check</b> to see today's plan.</div>
+  </div>
+</section>
+
+<!-- ================= Trade analyzer ================= -->
+<section role="tabpanel" id="tab-trade" aria-labelledby="t-trade" hidden>
+  <div id="ideasWrap" hidden>
+    <div class="sect" style="margin-top:0"><h2>Suggested trades</h2><span class="dim cap" id="ideasNote">From the last sync. Select one to load it.</span></div>
+    <div class="ideas" id="ideaList"></div>
+  </div>
+
+  <div class="sect"><h2>Build a trade</h2>
+    <span><button class="btn ghost" id="swap" title="Swap Team A and Team B">Swap sides</button>
+    <button class="btn ghost" id="clear">Clear picks</button></span></div>
+  <div class="builder">
+    <div class="card side" id="sideA"></div>
+    <div class="card side" id="sideB"></div>
+  </div>
+
+  <div id="verdict" aria-live="polite"></div>
+
+  <details class="help">
+    <summary>How the value works</summary>
+    <p>Each side gives the players it picks and gets the other side's picks.
+    ROS is rest-of-season z: per-game z in 9 categories times games left, the same as season_plan.py.
+    The winner is the team with the larger gain in its best-10 total, with equal category weights. Gains closer than the even band count as an even trade.
+    "Your wt" uses the category weights in cat_weights.json. PV is perceived value, used for the "would accept" check.</p>
+  </details>
+</section>
+
+<!-- ================= League ================= -->
+<section role="tabpanel" id="tab-league" aria-labelledby="t-league" hidden>
+  <div class="card">
+    <div class="runbar">
+      <div class="grow">
+        <div style="font-weight:600">Your chance to beat each team</div>
+        <div class="dim cap" id="lgSub">Loading ...</div>
+      </div>
+    </div>
+    <div class="lwrap" style="margin-top:var(--s2)"><table class="lg" id="lgTable" aria-describedby="lgSub"></table></div>
+    <details class="help lnote">
+      <summary>How this works</summary>
+      <p>Each cell is the chance you win a one-week matchup (more categories won than lost), from the same simulation as the Sync tab. Select a team to see the category chances.
+      <b>Strength</b>: rosters only. Every player healthy, and every NBA team plays 4 games on the same 4 days. This removes injuries and schedule.
+      <b>Next week</b>: the next full matchup week with injuries as they are now (an OUT player comes back after 7 days), the same week for every team.
+      <b>When you play</b>: your real week against that team. The current matchup uses the live score. Weeks where ESPN has not set the NBA games yet (NBA Cup) show the Strength result.
+      Moves after today (streams, trades, waivers) are not included for either side. Rank and value come from the last sync (sum of the top 10 rest-of-season z).</p>
+    </details>
+  </div>
+</section>
+</main>
+
+<div id="dock" hidden><div class="in">
+  <div class="grow"><div class="res" id="dockRes">Pick players on both sides</div><div class="dim cap" id="dockSub"></div></div>
+  <button class="btn" id="dockGo">View details</button>
+</div></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (path, body) => fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json','X-FBB':'1'}, body:JSON.stringify(body)} : {}).then(async r => {
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'style' || k.startsWith('aria-') || k.startsWith('data-')) e.setAttribute(k, v); else e[k] = v; } kids.flat().forEach(k => k != null && e.append(k)); return e; };
+const f2 = x => (x > 0 ? '+' : '') + x.toFixed(2);
+const cls = x => x > 0.005 ? 'pos' : x < -0.005 ? 'neg' : '';
+const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+
+// ---------------- theme: System -> Light -> Dark
+const THEMES = ['system', 'light', 'dark'];
+function setTheme(t) {
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $('#theme').textContent = 'Theme: ' + t[0].toUpperCase() + t.slice(1);
+  $('#theme').title = 'Change theme (now ' + t + ')';
+  try { if (t === 'system') localStorage.removeItem('fbbTheme'); else localStorage.setItem('fbbTheme', t); } catch (e) {}
+}
+setTheme(document.documentElement.dataset.theme || 'system');
+$('#theme').onclick = () => setTheme(THEMES[(THEMES.indexOf(document.documentElement.dataset.theme || 'system') + 1) % 3]);
+
+// ---------------- tabs (arrow keys move between tabs)
+const tabs = [...document.querySelectorAll('[role=tab]')];
+function showTab(b) {
+  tabs.forEach(x => { const on = x === b; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; $('#' + x.getAttribute('aria-controls')).hidden = !on; });
+  const trade = b.id === 't-trade';
+  if (b.id === 't-league') loadStandings();
+  if (trade) initTrade();
+  $('#dock').hidden = !trade;
+  try { localStorage.setItem('fbbTab', b.id); } catch (e) {}
+}
+tabs.forEach((b, i) => {
+  b.onclick = () => showTab(b);
+  b.onkeydown = e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]; n.focus(); showTab(n); } };
+});
+
+// ---------------- morning check
+let poll = null, started = null, tick = null, lastJob = null;
+function syncMode() {
+  const live = $('#send').checked;
+  $('#runLabel').textContent = live ? 'Run and send iMessage' : 'Run dry check';
+  $('#modeTag').className = 'mode ' + (live ? 'live' : 'dry');
+  $('#modeTag').textContent = live ? 'Live: the iMessage is sent' : 'Dry run: nothing is sent';
+}
+$('#send').onchange = syncMode;
+
+function setStatus(j) {
+  const s = $('#status');
+  clearInterval(tick); tick = null;
+  if (j.running) {
+    if (!started) started = Date.now();
+    const draw = () => s.replaceChildren(el('span', {className:'spin', 'aria-hidden':'true'}), ' ' + j.label + ', ' + Math.round((Date.now() - started) / 1000) + ' s');
+    draw(); tick = setInterval(draw, 1000);
+    s.className = '';
+  } else {
+    started = null;
+    if (j.rc === null) s.textContent = '';
+    else if (j.rc === 0) { s.textContent = j.label + ': done.'; s.className = 'pos'; }
+    else { s.textContent = j.label + ': failed (exit ' + j.rc + '). See morning-fbb/logs.'; s.className = 'neg'; }
+  }
+  for (const b of ['#run', '#accept', '#acceptYes']) $(b).disabled = j.running;
+  $('#runLabel').parentElement.querySelector('.spin')?.remove();
+  if (j.running) $('#run').prepend(el('span', {className:'spin', 'aria-hidden':'true'}));
+}
+async function refreshJob() {
+  const j = await api('/api/job');
+  if (j.label && (!lastJob || j.html !== lastJob.html || j.running !== lastJob.running)) renderReport(j);
+  setStatus(j);
+  lastJob = j;
+  if (!j.running && poll) { clearInterval(poll); poll = null; loadSeason(); }
+  return j;
+}
+function startPoll() { if (!poll) poll = setInterval(() => refreshJob().catch(() => {}), 800); }
+$('#run').onclick = async () => {
+  try { await api('/api/run', {send: $('#send').checked}); startPoll(); refreshJob(); }
+  catch (e) { $('#status').textContent = e.message; $('#status').className = 'neg'; }
+};
+// Accepting a core change edits core_list.json, so it takes two clicks.
+const confirmUI = on => { $('#accept').hidden = on; $('#acceptYes').hidden = !on; $('#acceptNo').hidden = !on; if (on) $('#acceptYes').focus(); };
+$('#accept').onclick = () => confirmUI(true);
+$('#acceptNo').onclick = () => confirmUI(false);
+$('#acceptYes').onclick = async () => {
+  confirmUI(false);
+  try { await api('/api/accept-core', {}); startPoll(); refreshJob(); } catch (e) { $('#status').textContent = e.message; $('#status').className = 'neg'; }
+};
+
+// The script prints "label (13 chars) + text". Turn those rows into a readable grid; keep the raw text in a fold.
+const LABW = 13;
+function stripFirst(node, n) {      // remove the first n text characters from a DOM fragment
+  const w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  let t;
+  while (n > 0 && (t = w.nextNode())) { const k = Math.min(n, t.data.length); t.data = t.data.slice(k); n -= k; }
+  return node;
+}
+function htmlLine(h) { const s = el('span'); s.innerHTML = h; return s; }
+function catChips(frag, kind) {
+  const txt = frag.textContent.trim();
+  const items = [...txt.matchAll(/([A-Z0-9%]+) (\d+)/g)];
+  if (!items.length) return el('span', {className:'dim', textContent: txt});
+  return el('div', {className:'chips'}, items.map(m => el('span', {className:'chip ' + kind}, m[1], el('b', {className:'num', textContent: m[2] + '%'}))));
+}
+function renderReport(j) {
+  const box = $('#report');
+  const lines = (j.html || '').split('\n');
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  const raw = el('details', {className:'raw'}, el('summary', {textContent:'Show raw output'}), el('pre', {className:'term r', innerHTML: j.html || ''}));
+  const plain = l => htmlLine(l).textContent;
+  const isRow = t => t.length > LABW && t[0] !== ' ' && t.slice(0, LABW).endsWith(' ') && !/\s{2,}\S/.test(t.slice(0, LABW).trimEnd()) ;
+  const titleIdx = lines.findIndex(l => plain(l).match(/^(Morning FBB|FBB sync)   /));
+  if (titleIdx < 0) {   // other output (accept-core, failures): show it as is
+    const t = plain(lines.join('\n'));
+    const bad = /fail|error/i.test(t);
+    box.replaceChildren(el('div', {className: bad ? 'banner bad' : 'card'}, el('pre', {className:'term r', style:'border:0;padding:0;margin:0;background:none', innerHTML: lines.join('\n') || (j.running ? 'Starting ...' : '')})));
+    return;
+  }
+  const pre = lines.slice(0, titleIdx).map(plain).filter(t => t.trim());
+  const title = plain(lines[titleIdx]).replace(/^(Morning FBB|FBB sync)\s+/, '');
+  let sub = '', i = titleIdx + 1;
+  if (lines[i] && !isRow(plain(lines[i])) && plain(lines[i]).trim()) { sub = plain(lines[i]); i++; }
+  // group the rest into sections at blank lines
+  const sections = [[]];
+  for (; i < lines.length; i++) {
+    const t = plain(lines[i]);
+    if (!t.trim()) { if (sections[sections.length - 1].length) sections.push([]); continue; }
+    const sec = sections[sections.length - 1];
+    if (isRow(t)) sec.push({label: t.slice(0, LABW).trim(), node: stripFirst(htmlLine(lines[i]), LABW), subs: []});
+    else if (t.startsWith(' ') && sec.length) {
+      const lead = t.length - t.trimStart().length;
+      sec[sec.length - 1].subs.push(stripFirst(htmlLine(lines[i]), lead));
+    } else sec.push({label: '', node: htmlLine(lines[i]), subs: []});
+  }
+  const all = sections.flat();
+  const find = l => all.find(r => r.label === l);
+  // KPIs
+  const kpis = [];
+  const wc = find('Win chance');
+  if (wc) {
+    const m = wc.node.textContent.match(/(\d+)% now(?:, (\d+)% with plan)?/);
+    if (m) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Win chance this matchup'}),
+      el('div', {className:'headline num'}, m[2] ? m[1] + '% → ' + m[2] + '%' : m[1] + '%'),
+      el('div', {className:'cap dim', textContent: m[2] ? 'now → with plan' : 'now'})));
+  }
+  const cm = sub.match(/cats (\d+)-(\d+)-(\d+)/);
+  if (cm) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Categories W-L-T'}), el('div', {className:'headline num', textContent: cm[1] + '-' + cm[2] + '-' + cm[3]}),
+    el('div', {className:'cap dim', textContent: sub.replace(/\s+cats.*$/, '')})));
+  const sea = find('Season');
+  if (sea) { const m = sea.node.textContent.match(/value ([\d.-]+), rank (\d+) of (\d+)((?:, [\d.]+ (?:behind|ahead of) #\d+)*)(.*?\(([^)]*in 7 days)\))?/);
+    if (m) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Season rank'}), el('div', {className:'headline num', textContent: m[2] + ' of ' + m[3]}),
+      el('div', {className:'cap dim', textContent: 'value ' + m[1] + m[4] + (m[6] ? ', ' + m[6] : '')}))); }
+  const td = find('Today') || find('Tomorrow');
+  if (td) { const prop = /PROPOSED/.test(td.node.textContent);
+    kpis.push(el('div', {className:'kpi', style: prop ? 'border-color:var(--good)' : ''}, el('div', {className:'cap dim', textContent: td.label}),
+      el('div', {className:'headline ' + (prop ? 'pos' : '')}, prop ? td.subs.length + ' move' + (td.subs.length === 1 ? '' : 's') : 'No move'),
+      el('div', {className:'cap dim', textContent: prop ? 'proposed, see below' : td.node.textContent.trim()}))); }
+  const adds = sub.match(/adds (\d+) of (\d+)/);
+  if (adds) kpis.push(el('div', {className:'kpi'}, el('div', {className:'cap dim', textContent:'Adds used'}), el('div', {className:'headline num', textContent: adds[1] + ' of ' + adds[2]}), el('div', {className:'cap dim', textContent:'this matchup'})));
+
+  const chipKind = {Winning:'good', 'Toss-up':'mid', Losing:'bad'};
+  const cards = sections.filter(s => s.length).map(sec => {
+    const rows = el('div', {className:'rows r'});
+    for (const r of sec) {
+      if (r.label === 'Win chance') continue;
+      const val = chipKind[r.label] ? catChips(r.node, chipKind[r.label]) : r.node;
+      const cell = el('div', {}, val, r.subs.map(s => el('span', {className:'sub'}, s)));
+      if ((r.label === 'Today' || r.label === 'Tomorrow') && /PROPOSED/.test(r.node.textContent)) cell.style.fontWeight = '600';
+      rows.append(el('div', {className:'lab', textContent: r.label}), cell);
+    }
+    return rows.children.length ? el('div', {className:'card', style:'margin:0'}, rows) : null;
+  }).filter(Boolean);
+  box.replaceChildren(
+    ...pre.map(t => el('div', {className:'banner ' + (/fail|error/i.test(t) ? 'bad' : 'warn'), style:'margin-bottom:16px', textContent: t})),
+    el('div', {className:'rhead'}, el('p', {className:'headline', textContent:'Report'}), el('span', {className:'dim cap', textContent: title + (j.running ? '  (still running)' : '')})),
+    kpis.length ? el('div', {className:'kpis'}, kpis) : '',
+    el('div', {className:'sections'}, cards), raw);
+}
+
+let season = {};
+async function loadSeason() {
+  season = await api('/api/season');
+  const c = season.core;
+  const has = c && (c.add.length || c.remove.length);
+  $('#corebar').hidden = !has;
+  if (has) $('#coretext').textContent = 'Add ' + (c.add.join(', ') || 'none') + '. Remove ' + (c.remove.join(', ') || 'none') + '.';
+  if (season.mtime) $('#ideasNote').textContent = 'From the sync ' + ago(season.mtime * 1000) + '. Select one to load it.';
+  renderIdeas();
+}
+
+// ---------------- trade analyzer
+let L = null, sel = {A: new Set(), B: new Set()}, team = {A: null, B: null}, evalTimer = null, filt = {A: '', B: ''}, activeIdea = null, loading = null;
+function initTrade() {
+  if (L) return Promise.resolve();
+  if (loading) return loading;
+  $('#sideA').replaceChildren(el('div', {className:'dim', textContent:'Loading rosters ...'}));
+  return loading = api('/api/league').then(d => {
+    L = d;
+    $('#pulled').textContent = 'ESPN data ' + ago(L.pulled) + ' (' + new Date(L.pulled).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + ')';
+    team.A = L.me; team.B = L.teams.find(t => t.id !== L.me).id;
+    render(); renderIdeas();
+  }).catch(e => { $('#sideA').replaceChildren(el('div', {className:'neg', textContent:'Could not load rosters: ' + e.message})); loading = null; });
+}
+const teamOf = id => L.teams.find(t => String(t.id) === String(id));
+const other = s => s === 'A' ? 'B' : 'A';
+
+function drawSide(side) {
+  const t = teamOf(team[side]), box = $('#side' + side);
+  const select = el('select', {'aria-label': 'Team ' + side},
+    L.teams.map(x => el('option', {value: x.id, textContent: x.name + (x.id === L.me ? ' (you)' : ''), disabled: String(x.id) === String(team[other(side)]), selected: String(x.id) === String(t.id)})));
+  select.onchange = () => { team[side] = +select.value; sel[side].clear(); activeIdea = null; render(); };
+  const picked = t.players.filter(p => sel[side].has(p.id));
+  const tray = el('div', {className:'tray', 'aria-label': 'Team ' + side + ' gives'},
+    picked.length ? picked.map(p => el('span', {className:'pick'}, p.name,
+      Object.assign(el('button', {'aria-label':'Remove ' + p.name, title:'Remove', textContent:'×'}), {onclick: () => toggle(side, p.id)})))
+    : el('span', {className:'ph', textContent:'Gives: select players below'}));
+  const q = el('input', {className:'filter', type:'search', placeholder:'Filter players', value: filt[side], 'aria-label':'Filter Team ' + side + ' players'});
+  q.oninput = () => { filt[side] = q.value; drawRows(side, tbody, t); };
+  const tbody = el('tbody');
+  const tbl = el('table', {className:'roster'},
+    el('thead', {}, el('tr', {}, el('th', {}, 'Player'),
+      el('th', {}, el('abbr', {title:'Rest-of-season z, equal category weights', textContent:'ROS'})),
+      el('th', {}, el('abbr', {title:'Rest-of-season z with your category weights', textContent:'Your wt'})),
+      el('th', {}, el('abbr', {title:'Perceived value in dollars (what other managers think he is worth)', textContent:'PV $'})))), tbody);
+  drawRows(side, tbody, t);
+  box.replaceChildren(el('div', {className:'top'}, el('span', {className:'letter', 'aria-hidden':'true', textContent: side}), select),
+    tray, q, tbl);
+}
+function drawRows(side, tbody, t) {
+  const f = filt[side].trim().toLowerCase();
+  const fmt = v => v === null ? 'n/a' : v.toFixed(2);
+  tbody.replaceChildren(...t.players.filter(p => !f || p.name.toLowerCase().includes(f) || p.pro.toLowerCase() === f).map(p => {
+    const on = sel[side].has(p.id);
+    const cb = el('input', {type:'checkbox', checked: on, 'aria-label': 'Trade ' + p.name});
+    cb.onchange = () => toggle(side, p.id);
+    const name = el('span', {className:'pname'}, el('span', {textContent: p.name}), el('span', {className:'tag', textContent: p.pro}));
+    if (p.inj !== 'ACTIVE') name.append(el('span', {className:'tag ' + (['OUT','INJURY_RESERVE','SUSPENSION'].includes(p.inj) ? 'bad' : 'warn'), textContent: p.inj.replace(/_/g, ' ').toLowerCase()}));
+    if (p.ir) name.append(el('span', {className:'tag', textContent:'IR slot'}));
+    if (p.never && t.id === L.me) name.append(el('span', {className:'tag anchor', textContent:'anchor'}));
+    const tr = el('tr', {className: on ? 'on' : ''},
+      el('td', {}, el('label', {}, cb, name)),
+      el('td', {className:'num' + (p.ros !== null && p.ros < 0 ? ' lo' : ''), textContent: fmt(p.ros)}),
+      el('td', {className:'num' + (p.ros_w !== null && p.ros_w < 0 ? ' lo' : ''), textContent: fmt(p.ros_w)}),
+      el('td', {className:'num', textContent: p.pv.toFixed(1)}));
+    tr.onclick = e => { if (!e.target.closest('label')) toggle(side, p.id); };
+    return tr;
+  }));
+  if (!tbody.children.length) tbody.append(el('tr', {}, el('td', {colSpan:4, className:'dim', textContent:'No player matches.'})));
+}
+function toggle(side, id) {
+  const refocus = document.activeElement?.getAttribute('aria-label');   // re-render replaces the rows; keep keyboard focus
+  sel[side].has(id) ? sel[side].delete(id) : sel[side].add(id);
+  activeIdea = null; render();
+  if (refocus) [...document.querySelectorAll('#side' + side + ' [aria-label]')].find(x => x.getAttribute('aria-label') === refocus)?.focus();
+}
+function render() {
+  drawSide('A'); drawSide('B'); markIdeas();
+  clearTimeout(evalTimer); evalTimer = setTimeout(evaluate, 150);
+}
+$('#swap').onclick = () => { if (!L) return; [team.A, team.B] = [team.B, team.A]; [sel.A, sel.B] = [sel.B, sel.A]; [filt.A, filt.B] = [filt.B, filt.A]; render(); };
+$('#clear').onclick = () => { if (!L) return; sel.A.clear(); sel.B.clear(); activeIdea = null; render(); };
+$('#dockGo').onclick = () => $('#verdict').scrollIntoView({behavior:'smooth', block:'start'});
+
+function dock(res, sub, tone) {
+  $('#dockRes').textContent = res; $('#dockRes').className = 'res ' + (tone || '');
+  $('#dockSub').textContent = sub || '';
+  $('#dockGo').hidden = !tone && !sub;
+}
+async function evaluate() {
+  const box = $('#verdict');
+  if (!sel.A.size || !sel.B.size) {
+    box.replaceChildren();
+    const need = !sel.A.size && !sel.B.size ? 'Pick players on both sides' : 'Now pick at least one player for Team ' + (sel.A.size ? 'B' : 'A');
+    dock(need, ''); return;
+  }
+  try {
+    const r = await api('/api/trade', {a_team: team.A, b_team: team.B, a_give: [...sel.A], b_give: [...sel.B]});
+    box.replaceChildren(...result(r));
+  } catch (e) { box.replaceChildren(el('div', {className:'banner bad', textContent: e.message})); dock('Could not evaluate', e.message, 'neg'); }
+}
+function sideCard(letter, s, isMe) {
+  const rows = [['Gain, best 10 ROS z', f2(s.gain), cls(s.gain)]];
+  if (isMe) rows.push(['Gain with your weights', f2(s.gain_weighted), cls(s.gain_weighted)]);
+  rows.push(['PV in / out', s.pv_in.toFixed(1) + ' / ' + s.pv_out.toFixed(1), ''],
+            ['Would accept (PV rule)', s.palatable ? 'Yes' : 'No, needs ' + s.pv_need.toFixed(1) + ' in', s.palatable ? 'pos' : 'neg']);
+  const kids = [el('h2', {textContent: 'Team ' + letter + ': ' + s.team + (isMe ? ' (you)' : '')}),
+    el('p', {className:'flow'}, el('span', {className:'dim', textContent:'Gives '}), s.gives.join(', '), el('br'),
+      el('span', {className:'dim', textContent:'Gets '}), s.gets.join(', '), s.drop ? el('span', {className:'wrn', textContent:'; drops ' + s.drop}) : ''),
+    el('table', {}, el('tbody', {}, rows.map(r => el('tr', {}, el('td', {textContent:r[0]}), el('td', {className:'num ' + r[2], textContent:r[1]})))))];
+  if (s.inj_in.length) kids.push(el('div', {className:'cap wrn', style:'margin-top:8px', textContent:'Injury risk: ' + s.inj_in.join(', ')}));
+  if (s.ir_in.length) kids.push(el('div', {className:'cap wrn', textContent:'In IR slot: ' + s.ir_in.join(', ')}));
+  return el('div', {className:'card', style:'margin:0'}, ...kids);
+}
+function result(r) {
+  const w = r.winner, meWin = r.me_side && w === r.me_side, meLose = r.me_side && w !== 'even' && w !== r.me_side;
+  const head = w === 'even' ? 'Even trade' : 'Team ' + w.toUpperCase() + ' wins: ' + r[w].team + (r.me_side === w ? ' (you)' : '');
+  const sub = w === 'even' ? 'Gains differ by ' + r.margin.toFixed(2) + ' ROS z, under the even band of ' + r.even_band + '.' : 'By ' + r.margin.toFixed(2) + ' ROS z (best-10 gain difference).';
+  dock(head, sub + (r.notes.length ? ' ' + r.notes.length + ' note' + (r.notes.length > 1 ? 's' : '') + '.' : ''), meWin ? 'pos' : meLose ? 'neg' : '');
+  const v = el('div', {className:'vhead ' + (meWin ? 'win-me' : meLose ? 'lose-me' : '')},
+    el('div', {className:'grow'}, el('p', {className:'headline', textContent: head}), el('div', {className:'dim', textContent: sub}),
+      r.notes.length ? el('ul', {className:'notes'}, r.notes.map(n => el('li', {textContent: n}))) : ''));
+  const cats = Object.keys(r.a.cats);
+  const cell = x => el('td', {}, el('span', {className:'cell num ' + (x > 0.005 ? 'p' : x < -0.005 ? 'n' : ''), textContent: f2(x)}));
+  const ct = el('table', {className:'cat'},
+    el('thead', {}, el('tr', {}, el('th', {textContent:'Team'}), cats.map(c => el('th', {textContent:c})))),
+    el('tbody', {}, ['a', 'b'].map(k => el('tr', {}, el('td', {textContent: k.toUpperCase() + ': ' + r[k].team}), cats.map(c => cell(r[k].cats[c]))))));
+  const catPanel = el('div', {className:'card', style:'margin-top:16px'}, el('h2', {textContent:'Category change, best 10 players'}),
+    el('div', {className:'cap dim', style:'margin-bottom:8px', textContent:'Green helps that team. TO is signed so that positive means fewer turnovers.'}), el('div', {className:'catwrap'}, ct));
+  return [v, el('div', {className:'sides'}, sideCard('A', r.a, r.me_side === 'a'), sideCard('B', r.b, r.me_side === 'b')), catPanel];
+}
+function renderIdeas() {
+  const t = season.trades || [];
+  $('#ideasWrap').hidden = !t.length;
+  $('#ideaList').replaceChildren(...t.map((i, n) => {
+    const b = el('button', {className:'idea', 'aria-pressed': 'false', 'data-n': n},
+      el('div', {className:'cap dim', textContent: i.team}),
+      el('div', {className:'swap'}, el('span', {className:'dim', textContent:'Give'}), el('span', {textContent: i.give.join(' + ')}),
+        el('span', {className:'dim', textContent:'Get'}), el('span', {textContent: i.get.join(' + ')})),
+      el('div', {className:'cap'}, el('span', {className:'val pos', textContent:'Your value +' + i.gain.toFixed(1)}),
+        i.helps && i.helps.length ? el('span', {className:'dim', textContent:'  ·  helps their ' + i.helps.join(', ')}) : ''));
+    b.onclick = () => loadIdea(i, n);
+    return b;
+  }));
+  markIdeas();
+}
+function markIdeas() { document.querySelectorAll('.idea').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.n === activeIdea))); }
+async function loadIdea(i, n) {
+  await initTrade();
+  const me = teamOf(L.me), oth = L.teams.find(t => t.name === i.team);
+  if (!oth) return;
+  team.A = L.me; team.B = oth.id; filt.A = filt.B = '';
+  sel.A = new Set(me.players.filter(p => i.give.includes(p.name)).map(p => p.id));
+  sel.B = new Set(oth.players.filter(p => i.get.includes(p.name)).map(p => p.id));
+  render(); activeIdea = n; markIdeas();
+}
+
+// ---------------- start
+syncMode();
+loadSeason().catch(() => {});
+
+// ---------------- league
+let stLoaded = 0;
+const pwCls = p => p >= 0.6 ? 'good' : p >= 0.4 ? 'mid' : 'bad';
+const pwCell = (r, sub) => r ? el('td', {className:'r'}, el('span', {className:'pw ' + pwCls(r.pwin), textContent: Math.round(r.pwin * 100) + '%'}),
+  el('div', {className:'cap dim num', textContent: sub || (r.won.toFixed(1) + '-' + r.lost.toFixed(1) + ' cats')})) : el('td', {className:'r dim cap', textContent:'none left'});
+const md = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric'});
+function catChipsRow(label, r) {
+  if (!r) return null;
+  const cats = Object.entries(r.cats).sort((a, b) => b[1] - a[1]);
+  return el('div', {}, el('span', {className:'dim', textContent: label + ': '}),
+    el('span', {className:'catrow', style:'display:inline-flex'}, cats.map(([k, v]) => el('span', {className:'cat ' + pwCls(v), textContent: k + ' ' + Math.round(v * 100)}))),
+    r.note ? el('div', {className:'dim', textContent: r.note}) : null);
+}
+async function loadStandings(force) {
+  if (!force && Date.now() - stLoaded < 60000) return;
+  let d;
+  try { d = await api('/api/standings'); } catch (e) { $('#lgSub').textContent = 'Could not load: ' + e.message; return; }
+  stLoaded = Date.now();
+  const pd = md(d.plan_day);
+  $('#lgSub').textContent = 'Rosters as of ' + pd + (d.plan_mode === 'tomorrow' ? ' (tomorrow)' : '') + '. Data pulled ' + ago(d.pulled) + '. Next week = Matchup ' + d.typical_week.mp + ', ' + md(d.typical_week.start) + ' to ' + md(d.typical_week.end) + '.';
+  const head = el('tr', {}, el('th', {className:'r', textContent:'#'}), el('th', {textContent:'Team'}), el('th', {className:'r', textContent:'Value'}),
+    el('th', {className:'r', textContent:'Strength'}), el('th', {className:'r', textContent:'Next week'}), el('th', {className:'r', textContent:'When you play'}));
+  const body = [];
+  d.rows.forEach((r, i) => {
+    const rank = el('td', {className:'r num', textContent: String(i + 1)});
+    const val = el('td', {className:'r num', textContent: r.value != null ? r.value.toFixed(1) : ''});
+    if (r.me) { body.push(el('tr', {className:'me'}, rank, el('td', {textContent: r.team + ' (you)'}), val, el('td', {}), el('td', {}), el('td', {}))); return; }
+    const m = r.meeting;
+    const mSub = m ? (m.live ? 'now, live' : 'Matchup ' + m.mp + ', ' + md(m.start)) + (m.note ? ' *' : '') : '';
+    const tr = el('tr', {className:'team', tabIndex:0, 'aria-expanded':'false'}, rank, el('td', {textContent: r.team}), val,
+      pwCell(r.neutral), pwCell(r.typical), pwCell(m, mSub));
+    const det = el('tr', {className:'det', hidden:true}, el('td', {colSpan:6},
+      catChipsRow('Strength', r.neutral), catChipsRow('Next week', r.typical), catChipsRow(m && m.live ? 'This matchup (live)' : 'When you play', m)));
+    const toggle = () => { det.hidden = !det.hidden; tr.setAttribute('aria-expanded', String(!det.hidden)); };
+    tr.onclick = toggle; tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    body.push(tr, det);
+  });
+  $('#lgTable').replaceChildren(el('thead', {}, head), el('tbody', {}, body));
+}
+// Auto sync on page load: dry run only (no iMessage), skipped if one started in the last 5 minutes.
+refreshJob().then(j => {
+  if (j.running) return startPoll();
+  let last = 0;
+  try { last = +localStorage.getItem('fbbLastSync') || 0; } catch (e) {}
+  if (Date.now() - last < 300000) return;
+  try { localStorage.setItem('fbbLastSync', String(Date.now())); } catch (e) {}
+  return api('/api/run', {send: false}).then(() => { startPoll(); refreshJob(); });
+}).catch(() => {});
+initTrade();   // loads rosters in the background so the data time shows in the header
+try { const t = localStorage.getItem('fbbTab'); if (t && $('#' + t)) showTab($('#' + t)); } catch (e) {}
+</script>
+</body>
+</html>

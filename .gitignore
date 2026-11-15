@@ -1,0 +1,13 @@
+# Plain-text league data never goes into git. Only encrypted copies in data/.
+.venv/
+__pycache__/
+.DS_Store
+config.json
+app/*.json
+!app/config.example.json
+app/*.csv
+app/*.jsonl
+app/*.txt
+app/logs/
+out/
+_site/
