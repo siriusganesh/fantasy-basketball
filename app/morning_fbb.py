@@ -47,6 +47,7 @@ LOG = open(os.path.join('logs', NOW.strftime('%Y-%m-%d') + '.log'), 'a')
 
 SENT = []   # (text, status) of each message, for the screen report
 IR_TODAY, IR_LATER = [], []   # IR activation steps from daily_run.py (today's go first in the proposal)
+IR_ALT = []   # daily_run.py: the IR step to use when no add passes today (the activation was only for it)
 
 
 def log(*a):
@@ -249,6 +250,7 @@ def main():
     # The planner sets the day and time, so the season check's general activation note is not repeated.
     IR_TODAY[:] = [l[len('IR today: '):] for l in out.splitlines() if l.startswith('IR today: ')]
     IR_LATER[:] = [l.split(': ', 1)[1] for l in out.splitlines() if l.startswith(('IR later: ', 'IR plan: keep'))]
+    IR_ALT[:] = [l[len('IR if no add today: '):] for l in out.splitlines() if l.startswith('IR if no add today: ')]
     if (IR_TODAY or IR_LATER) and sea:
         sea['ir'] = [i for i in sea.get('ir', []) if i['type'] != 'activate']
 
@@ -300,6 +302,16 @@ def main():
             lines.append('Proposed: ' + ' '.join(proposed) +
                          f' Win chance {pct(base_p)} to {pct(sel_p)}. Adds used {used} of {limit}.')
 
+    # no add passes today: an activation by drop that was only for today's add waits for its later day
+    if IR_ALT and p_today is None:
+        IR_TODAY.clear()
+        IR_LATER[:0] = IR_ALT
+        proposed.clear()
+    # ESPN blocks every add and waiver claim while a healthy player sits in IR: name the later adds it blocks
+    blocked = [f"{u['add']} ({u['when']})" for u in (sea or {}).get('upgrades', [])]
+    if blocked:
+        IR_LATER[:] = [x + f". Do it before the add or claim of {', '.join(blocked)}: ESPN blocks them while he is in IR"
+                       if ': activate ' in x else x for x in IR_LATER]
     if IR_TODAY and not any(l.startswith('Proposed: ') for l in lines):   # IR step alone (adds blocked or none)
         lines.append('Proposed: ' + ' '.join(proposed))
     lines += [f'IR later: {x}.' for x in IR_LATER]

@@ -149,18 +149,32 @@ for l in out.splitlines():
     dday, n, how = im.groups()
     p = next(q for q in ros if q['name'] == n)
     g = [x for x in s['games'].get(str(p['pro']), []) if x['sp'] == s['todaySp'] and x['date'] > now_ms]
+    # a day-to-day player ruled OUT can go to IR in his place: a swap, no drop
+    dtd = [q['name'] for q in ros if q.get('slot') != 13 and q['inj'] == 'DAY_TO_DAY']
+    alt = (f". If {' or '.join(dtd)} is ruled OUT first, move him to IR and {n} to the bench instead: no drop"
+           if dtd and how.startswith('drop ') else '')
     if how.startswith('drop '):
         # activation by drop: no gain on a day with no game for him and no add, so wait for the first day
         # that has one of them (the dropped player keeps his games until then)
-        dsp = sp_of.get(dday, s['todaySp'])
-        his = sorted({x['sp'] for x in s['games'].get(str(p['pro']), []) if x['sp'] >= dsp and x['date'] > now_ms})
-        if dsp not in his and dsp not in add_days:
-            dsp = min([x for x in his + add_days if x > dsp], default=dsp)
+        dsp0 = sp_of.get(dday, s['todaySp'])
+        his = sorted({x['sp'] for x in s['games'].get(str(p['pro']), []) if x['sp'] >= dsp0 and x['date'] > now_ms})
+
+        def need_day(adds):
+            if dsp0 in his or dsp0 in adds:
+                return dsp0
+            return min([x for x in his + adds if x > dsp0], default=dsp0)
+
+        later = lambda d: (f"{day(d):%a %b %d}: activate {n} ({how}): {drop_window(d)} "
+                           f"({n + ' plays' if d in his else 'before the add that day'}). "
+                           f"No add used. {how[5:]} keeps his games before that day{alt}")
+        dsp = need_day(add_days)
         if dsp != s['todaySp']:
-            why = f"{n} plays" if dsp in his else 'before the add that day'
-            print(f"IR later: {day(dsp):%a %b %d}: activate {n} ({how}): {drop_window(dsp)} ({why}). "
-                  f"No add used. {how[5:]} keeps his games before that day")
+            print('IR later: ' + later(dsp))
             continue
+        # today only because of today's add: morning_fbb.py uses this line when no add passes its checks
+        dsp_alt = need_day([a for a in add_days if a != s['todaySp']])
+        if dsp_alt != s['todaySp']:
+            print('IR if no add today: ' + later(dsp_alt))
     elif dday != today:
         print(f'IR later: {dday}: activate {n} ({how}). No add used')
         continue
@@ -176,7 +190,7 @@ for l in out.splitlines():
         gd = game_today(dp) if dp else []
         if gd and gd[0]['date'] > now_ms and how[5:] in starts_today:
             lost = f". {how[5:]} loses his game today"
-    print(f'IR today: activate {n}: {steps}, {when}. No add used. Do it before any add{lost}')
+    print(f'IR today: activate {n}: {steps}, {when}. No add used. Do it before any add{lost}{alt}')
 if moves:
     print('Today checks:')
     print('  base:', ev(''))
