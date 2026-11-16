@@ -363,7 +363,8 @@ def main():
         # this matchup's P(win) within the limit. A move in the next matchup uses next week's adds.
         this_week = sum(1 for u in ups if u['sp'] <= end_sp)
         best = None
-        for sp in (today, today + 1, end_sp + 1):
+        w0 = A.waiver_first_sp(fa, season_start, today)   # a waiver claim takes effect only when it processes
+        for sp in sorted({max(today, w0), max(today + 1, w0), max(end_sp + 1, w0)}):
             if sp <= end_sp and this_week >= budget:
                 continue
             if sp > end_sp:
@@ -383,6 +384,7 @@ def main():
                     'drop': d['name'] if d else None, 'drop_id': d['id'] if d else None,
                     'gain': round(gain, 2), 'ros_add': round(R(fa), 2), 'ros_drop': round(R(d), 2) if d else None,
                     'sp': sp, 'when': f"{day(sp):%a %b %d} (next matchup)" if sp > end_sp
+                    else f"{day(sp):%a %b %d}, claim processes" if fa['status'] == 'WAIVERS' and sp == w0 > today
                     else 'today' if sp == real_sp else 'tomorrow' if sp == real_sp + 1 else f"{day(sp):%a %b %d}",
                     'pwin': round(pw, 3)})
     result['upgrades'] = ups
