@@ -135,6 +135,12 @@ for l in out.splitlines():
     if dday != today:
         print(f'IR later: {dday}: activate {n} ({how}). No add used')
         continue
+    # no add today and no game for him today: wait, the drop keeps his games
+    if not moves and not g and how.startswith('drop '):
+        nx = min((x['sp'] for x in s['games'].get(str(p['pro']), []) if x['sp'] > s['todaySp']), default=None)
+        if nx:
+            print(f'IR later: {day(nx):%a %b %d}: activate {n} ({how}) before his game, or before any add. No add used')
+            continue
     steps = (f"move {how[:-len(' to IR')]} to IR and {n} to the bench (one swap)" if how.endswith(' to IR')
              else f"{how}, then move {n} to the bench")
     when = f"before {local(g[0]['date']):%H:%M %Z} ({n} plays)" if g else f"any time ({n} has no game {'tomorrow' if s.get('planMode') == 'tomorrow' else 'today'})"
