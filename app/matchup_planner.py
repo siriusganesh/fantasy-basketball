@@ -187,8 +187,10 @@ def main():
             for c in cand:
                 if 'score' not in c:
                     c['score'] = objective(c)
-            # ties: fewer adds, then the earlier IR activation (a swap costs nothing, so do it early)
-            cand.sort(key=lambda c: (-c['score'], n_adds(c), len(waiting(c))))
+            # ties: fewer adds, then the later activation by drop (the dropped player keeps his games),
+            # then the earlier IR activation (a swap costs nothing, so do it early)
+            late = lambda c: -min((a_sp for a_sp, _, h in c['act'] if h.startswith('drop ')), default=10 ** 6)
+            cand.sort(key=lambda c: (-c['score'], n_adds(c), late(c), len(waiting(c))))
             uniq, seen = [], set()
             for c in cand:
                 sig = tuple(sorted(m for m in c['moves'] if m[1])) + tuple(c['act']) + tuple(c['irspot'])

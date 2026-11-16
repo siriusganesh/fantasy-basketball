@@ -123,6 +123,23 @@ ev = lambda ps: subprocess.run(['python3', 'eval_plan.py', 'snapshot.json', sche
                                capture_output=True, text=True).stdout.split('{')[0].strip()
 
 # IR moves: today's with the time limit, later ones as information
+def first_tip(sp):
+    """First NBA tip of scoring period sp (ms), or None when the snapshot has no games for it."""
+    if sp == s.get('realSp') and s.get('firstTip'):
+        return s['firstTip']
+    return min((g['date'] for gl in s['games'].values() for g in gl if g['sp'] == sp), default=None)
+
+
+def drop_window(sp):
+    """ESPN: a drop made after the first tip of day sp-1 takes effect on day sp; after the first tip of day sp,
+    it takes effect on day sp+1. So a drop for day sp goes in this window (the dropped player keeps day sp-1)."""
+    a, b = first_tip(sp - 1), first_tip(sp)
+    start = 'now' if a is None or a <= now_ms else f"after {local(a):%a %H:%M}"
+    return f"{start}, before {local(b):%a %H:%M %Z}" if b else start
+
+
+sp_of = {day(sp).strftime('%a %b %d'): sp for sp in range(s['todaySp'], end_sp + 1)}
+add_days = sorted({sp_of[d] for d in re.findall(r'^  (\w{3} \w{3} \d\d): .*\badd ', out, re.M) if d in sp_of})
 for l in out.splitlines():
     im = re.match(r'IR plan: (\w{3} \w{3} \d\d): activate (.+?) \((.+)\)$', l)
     if not im:
@@ -132,18 +149,27 @@ for l in out.splitlines():
     dday, n, how = im.groups()
     p = next(q for q in ros if q['name'] == n)
     g = [x for x in s['games'].get(str(p['pro']), []) if x['sp'] == s['todaySp'] and x['date'] > now_ms]
-    if dday != today:
+    if how.startswith('drop '):
+        # activation by drop: no gain on a day with no game for him and no add, so wait for the first day
+        # that has one of them (the dropped player keeps his games until then)
+        dsp = sp_of.get(dday, s['todaySp'])
+        his = sorted({x['sp'] for x in s['games'].get(str(p['pro']), []) if x['sp'] >= dsp and x['date'] > now_ms})
+        if dsp not in his and dsp not in add_days:
+            dsp = min([x for x in his + add_days if x > dsp], default=dsp)
+        if dsp != s['todaySp']:
+            why = f"{n} plays" if dsp in his else 'before the add that day'
+            print(f"IR later: {day(dsp):%a %b %d}: activate {n} ({how}): {drop_window(dsp)} ({why}). "
+                  f"No add used. {how[5:]} keeps his games before that day")
+            continue
+    elif dday != today:
         print(f'IR later: {dday}: activate {n} ({how}). No add used')
         continue
-    # no add today and no game for him today: wait, the drop keeps his games
-    if not moves and not g and how.startswith('drop '):
-        nx = min((x['sp'] for x in s['games'].get(str(p['pro']), []) if x['sp'] > s['todaySp']), default=None)
-        if nx:
-            print(f'IR later: {day(nx):%a %b %d}: activate {n} ({how}) before his game, or before any add. No add used')
-            continue
     steps = (f"move {how[:-len(' to IR')]} to IR and {n} to the bench (one swap)" if how.endswith(' to IR')
              else f"{how}, then move {n} to the bench")
-    when = f"before {local(g[0]['date']):%H:%M %Z} ({n} plays)" if g else f"any time ({n} has no game {'tomorrow' if s.get('planMode') == 'tomorrow' else 'today'})"
+    if how.startswith('drop '):
+        when = drop_window(s['todaySp'])   # the drop must take effect on the plan day
+    else:
+        when = f"before {local(g[0]['date']):%H:%M %Z} ({n} plays)" if g else f"any time ({n} has no game {'tomorrow' if s.get('planMode') == 'tomorrow' else 'today'})"
     lost = ''
     if how.startswith('drop '):
         dp = byr.get(how[5:])
