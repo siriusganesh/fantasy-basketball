@@ -3,7 +3,7 @@
 Daily planner for the ESPN fantasy team Denny Nuggies (League of Tacos). Moved from the Mac folder `morning-fbb`.
 
 - **Read-only on ESPN.** The scripts only read league data and propose moves. You make every move yourself.
-- **GitHub Actions** (`.github/workflows/fbb.yml`) runs 5 times a day (05:16, 14:46, 15:46, 16:31, 19:46 MST): ESPN pull, season check,
+- **GitHub Actions** (`.github/workflows/fbb.yml`) runs 6 times a day (04:46, 13:46, 14:46, 15:46, 16:46, 19:46 Denver time, started by an external cron-job.org timer through `workflow_dispatch`): ESPN pull, season check,
   daily plan, proposal rules, ntfy push when there is something to report (a text only once per day).
   It commits state and logs to `data/` with `[skip ci]`; the page data (`site.enc`) goes only to Pages
   and deploys the page.
