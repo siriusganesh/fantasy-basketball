@@ -5,13 +5,8 @@ name: FBB sync
 # which are committed only encrypted (data/*.enc). Secrets: ESPN_S2, ESPN_SWID, NTFY_TOPIC, FBB_PASSWORD.
 
 on:
-  schedule:
-    # Cron is UTC. Local times are MST; add 1 hour after DST starts (Mar 14, 2027).
-    - cron: '16 12 * * *'   # 05:16: overnight stats final, waivers cleared; plans today.
-    - cron: '46 21 * * *'   # 14:46: afternoon injury reports
-    - cron: '46 22 * * *'   # 15:46: more injury news, before weekday tips
-    - cron: '31 23 * * *'   # 16:31: last check before the 17:00 weekday tips
-    - cron: '46 2 * * *'    # 19:46: after the first tip; plans tomorrow
+  # No schedule: GitHub cron ran 3 to 10 hours late. cron-job.org calls workflow_dispatch with send=true
+  # at 04:46, 13:46, 14:46, 15:46, 16:46 and 19:46 America/Denver (DST handled there).
   workflow_dispatch:
     inputs:
       send:
