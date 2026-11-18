@@ -170,26 +170,33 @@ def main():
     # trade proposals, declines and accepts of the last 2 scoring days (trade_market.py learns from them)
     # also my own adds/drops that are not on the plan-day roster yet (pending waiver claims, or a move
     # that takes effect after the plan day): the planner must not propose those players again
-    trades_tx, pending = [], []
+    trades_tx, pending, fetched = [], [], []
     for sp in sorted({sp_now - 1, sp_now, plan_sp}):
         try:
-            txs = get(f'{BASE}?view=mTransactions2&scoringPeriodId={sp}').get('transactions', [])
+            fetched += [(sp, x) for x in get(f'{BASE}?view=mTransactions2&scoringPeriodId={sp}').get('transactions', [])]
         except Exception:
             continue
-        for x in txs:
-            typ = str(x.get('type'))
-            if 'TRADE' in typ and sp in (sp_now, sp_now - 1):
-                trades_tx.append({k: x.get(k) for k in ('id', 'type', 'status', 'teamId', 'relatedTransactionId',
-                                                         'proposedDate', 'items')})
-            elif typ in ('FREEAGENT', 'WAIVER') and x.get('teamId') == me['id'] and \
-                    x.get('id') not in {m['id'] for m in pending} and (
-                    x.get('status') == 'PENDING' or
-                    x.get('status') == 'EXECUTED' and (x.get('scoringPeriodId') or 0) > plan_sp):
-                items = x.get('items') or []
-                pending.append({'id': x.get('id'), 'type': typ, 'status': x.get('status'),
-                                'sp': x.get('scoringPeriodId'),
-                                'add': [i['playerId'] for i in items if i.get('toTeamId') == me['id']],
-                                'drop': [i['playerId'] for i in items if i.get('fromTeamId') == me['id']]})
+    # 2026-11-18: ESPN keeps a processed waiver claim at status PENDING. The result is a second record
+    # (EXECUTED, executionType PROCESS) whose relatedTransactionId is the claim id. Skip such claims.
+    resolved = {x.get('relatedTransactionId') for _, x in fetched if x.get('status') != 'PENDING'} - {None}
+    on_plan = {e['playerPoolEntry']['player']['id'] for e in me['roster']['entries']}
+    for sp, x in fetched:
+        typ = str(x.get('type'))
+        if 'TRADE' in typ and sp in (sp_now, sp_now - 1):
+            trades_tx.append({k: x.get(k) for k in ('id', 'type', 'status', 'teamId', 'relatedTransactionId',
+                                                     'proposedDate', 'items')})
+        elif typ in ('FREEAGENT', 'WAIVER') and x.get('teamId') == me['id'] and \
+                x.get('id') not in resolved and \
+                x.get('id') not in {m['id'] for m in pending} and (
+                x.get('status') == 'PENDING' or
+                x.get('status') == 'EXECUTED' and (x.get('scoringPeriodId') or 0) > plan_sp):
+            items = x.get('items') or []
+            adds = {i['playerId'] for i in items if i.get('toTeamId') == me['id']}
+            drops = {i['playerId'] for i in items if i.get('fromTeamId') == me['id']}
+            if adds <= on_plan and not drops & on_plan:
+                continue                           # move already shows on the plan-day roster
+            pending.append({'id': x.get('id'), 'type': typ, 'status': x.get('status'),
+                            'sp': x.get('scoringPeriodId'), 'add': sorted(adds), 'drop': sorted(drops)})
     pend_add = {i for m in pending for i in m['add']}
     pend_drop = {i for m in pending for i in m['drop']}
     fas = [p for p in fas if p['id'] not in pend_add]
