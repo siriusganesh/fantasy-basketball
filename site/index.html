@@ -224,6 +224,56 @@ details.help p{max-width:760px;color:var(--dim)}
 #lockWait,html.auto #lockForm{display:none}
 html.auto #lockWait{display:block}
 a.btn{text-decoration:none;display:inline-flex;align-items:center}
+
+/* ---------- Free agency ---------- */
+.short{display:none}
+@media(max-width:560px){.short{display:inline}}
+.wts{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s1)}
+.wt{font-size:12px;border-radius:6px;padding:2px 8px;background:var(--chip);color:var(--dim);font-variant-numeric:tabular-nums}
+.wt.need{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--panel);min-height:36px;padding:0 var(--s2);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.fabar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin:var(--s3) 0 var(--s1)}
+.fabar h2{margin:0}
+.fabar .grow{flex:1}
+.fa .card{margin:0;min-width:0}
+.fa .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:var(--s1)}
+.fa .tw.tall{max-height:70vh;overflow-y:auto}
+.fa table{font-size:13px}
+.fa thead th{position:sticky;top:0;background:var(--panel);z-index:1}
+.fa th button{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;white-space:nowrap}
+.fa th[aria-sort] button{color:var(--ink)}
+.fa th .w{display:block;font-weight:400;font-size:11px}
+.fa th.need{color:var(--accent)}.fa th.need .w{color:var(--accent);font-weight:600}
+.fa td{height:36px;white-space:nowrap}
+.fa td:first-child{white-space:nowrap}
+.fa.catv table{font-size:12px}
+.fa.catv td,.fa.catv th{padding-left:3px;padding-right:3px}
+.fa tbody tr{cursor:pointer}
+.fa tbody tr:hover td{background:var(--chip)}
+.fa tbody tr.add td{background:var(--accent-soft)}
+.fa tbody tr.drop td{background:var(--bad-soft)}
+.fa tbody tr.nodrop{cursor:default}
+.fa tfoot td{font-weight:600;border-top:2px solid var(--line);height:36px}
+.fa td.zc{padding:0 2px;text-align:center}
+.zc span{display:inline-block;min-width:30px;padding:1px 2px;border-radius:5px}
+.zc .p2{background:var(--good);color:var(--panel)}.zc .p1{background:var(--good-soft);color:var(--good)}
+.zc .n2{background:var(--bad);color:var(--panel)}.zc .n1{background:var(--bad-soft);color:var(--bad)}
+.fa .tools{display:flex;gap:var(--s1);flex-wrap:wrap;margin-top:var(--s1)}
+.fa .tools .filter{flex:1;min-width:140px;width:auto}
+.fa .tools select{min-height:36px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:0 var(--s1)}
+.fa .tools label{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+#faDock{position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -2px 8px rgba(0,0,0,.06)}
+#faDock .in{max-width:1200px;margin:0 auto;padding:12px var(--s3);display:flex;align-items:center;gap:var(--s1) var(--s2);flex-wrap:wrap}
+#faDock .grow{flex:1;min-width:0}
+#faDock .catrow{flex-basis:100%;margin:0}
+#faClear{min-width:40px;min-height:40px;padding:0;justify-content:center;font-size:20px;align-self:flex-start}
+#faDock .res{font-weight:700}
+#faDock .catrow{flex-wrap:nowrap;overflow-x:auto}
+#faDock .cat{white-space:nowrap}
+.cat.p{background:var(--good-soft);color:var(--good)}.cat.n{background:var(--bad-soft);color:var(--bad)}.cat.z{background:var(--chip);color:var(--dim)}
+@media(max-width:560px){#faDock .in{padding-left:var(--s2);padding-right:var(--s2)}}
 </style>
 </head>
 <body>
@@ -240,6 +290,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
     <div role="tablist" aria-label="Views">
       <button role="tab" id="t-morning" aria-controls="tab-morning" aria-selected="true">Sync</button>
       <button role="tab" id="t-trade" aria-controls="tab-trade" aria-selected="false" tabindex="-1">Trade<span class="long"> analyzer</span></button>
+      <button role="tab" id="t-fa" aria-controls="tab-fa" aria-selected="false" tabindex="-1"><span class="long">Free agency</span><span class="short">FA</span></button>
       <button role="tab" id="t-league" aria-controls="tab-league" aria-selected="false" tabindex="-1">League</button>
     </div>
     <span class="dim cap" id="pulled"></span>
@@ -311,6 +362,33 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   </details>
 </section>
 
+<!-- ================= Free agency ================= -->
+<section role="tabpanel" id="tab-fa" aria-labelledby="t-fa" hidden>
+  <div class="card">
+    <div style="font-weight:600">Your category weights</div>
+    <div class="dim cap" id="faWtSub">Loading ...</div>
+    <div class="wts" id="faWts"></div>
+  </div>
+  <div class="fabar"><h2 class="grow">Compare</h2>
+    <span class="seg" role="group" aria-label="Columns"><button type="button" id="faVtot" aria-pressed="true">Totals</button><button type="button" id="faVcat" aria-pressed="false">Categories</button></span></div>
+  <div class="builder fa">
+    <div class="card" id="faMine"></div>
+    <div class="card" id="faList"></div>
+  </div>
+  <details class="help">
+    <summary>How the numbers work</summary>
+    <p><b>Z</b>: per-game z, the sum of the 9 category z values against the top 120 players in the league (rosters and free agents). Equal weights.
+    <b>Wt z</b>: the same per-game z with your category weights. A category with a weight of 1.5 counts 1.5 times.
+    <b>ROS</b> and <b>Your wt</b>: the trade analyzer numbers. Per-game z (equal weights, then your weights) minus replacement level (the 2nd to 4th best healthy free agent), times games left this season, times availability.
+    <b>Gm</b>: games the player's NBA team has left in the matchup that the last sync planned for.
+    <b>vs drop</b>: this free agent's Your wt minus the Your wt of your lowest droppable player (not an anchor, not in the IR slot). Positive means he is worth more to your build for the rest of the season.
+    <b>Bottom bar</b>: the category chips are player for player (rest-of-season z per category, free agent minus the drop), highest weight first. The best-10 total is the season model's number: it changes only when the swap changes your best 10. Players in the IR slot count in the best 10, because their value is already reduced for the games they miss.
+    <b>Categories</b> view: per-game z for each category. A green cell helps that category, a red cell hurts it (for TO, green means fewer turnovers). Highlighted headers are the categories with a weight of 1.15 or more. The "Team avg" row is the mean of your best 10.
+    Select a free agent to see the swap in the bar at the bottom. The drop starts as your lowest droppable player. Select one of your players to change it.
+    All numbers come from the last sync. They do not change until the next sync.</p>
+  </details>
+</section>
+
 <!-- ================= League ================= -->
 <section role="tabpanel" id="tab-league" aria-labelledby="t-league" hidden>
   <div class="card">
@@ -333,6 +411,11 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 </section>
 </main>
 
+<div id="faDock" hidden><div class="in">
+  <div class="grow"><div class="res" id="faRes">Select a free agent to preview a swap</div><div class="dim cap" id="faSub"></div></div>
+  <button class="btn ghost" id="faClear" type="button" aria-label="Clear the swap" title="Clear" hidden>&times;</button>
+  <div class="catrow" id="faCats"></div>
+</div></div>
 <div id="dock" hidden><div class="in">
   <div class="grow"><div class="res" id="dockRes">Pick players on both sides</div><div class="dim cap" id="dockSub"></div></div>
   <button class="btn" id="dockGo">View details</button>
@@ -408,6 +491,8 @@ function showTab(b) {
   if (b.id === 't-league') loadStandings();
   if (trade) initTrade();
   $('#dock').hidden = !trade;
+  if (b.id === 't-fa') initFA();
+  $('#faDock').hidden = b.id !== 't-fa';
   try { localStorage.setItem('fbbTab', b.id); } catch (e) {}
 }
 tabs.forEach((b, i) => {
@@ -786,6 +871,160 @@ async function loadIdea(i, n) {
 }
 
 // ---------------- start: after the password (bottom of the script)
+
+// ---------------- free agency (from trade_ctx; same formulas as trade_eval.league_json)
+const OUTS = ['OUT', 'INJURY_RESERVE', 'SUSPENSION'];
+const POS = {PG: 0, SG: 1, SF: 2, PF: 3, C: 4};   // ESPN eligible slot ids
+let FA = null;
+const fs = {view: 'tot', sortM: 'rosw', sortF: 'gain', q: '', pos: '', hideOut: true, add: null, drop: null};
+try { if (localStorage.getItem('fbbFaView') === 'cat') fs.view = 'cat'; } catch (e) {}
+const sum = a => a.reduce((x, y) => x + y, 0);
+function faModel() {
+  const d = B.trade_ctx;
+  if (!d) throw new Error('no player data in the last sync');
+  const w = d.w, nc = d.cats.length;
+  const mk = p => {
+    const v = d.vec[p.id];
+    if (!v) return null;
+    const z = sum(v), wz = sum(v.map((x, i) => x * w[i])), g = d.gl[p.id] || 0;
+    return {id: p.id, name: p.name, pro: d.proteam[p.pro] || '?', inj: p.inj, ir: p.slot === 13, status: p.status,
+      elig: p.elig || [], rost: p.rost, v, z, wz, gl: g, ros: (z - d.zr[1]) * g, rosw: (wz - d.zr[0]) * g,
+      gm: d.gwk && p.pro != null ? (d.gwk[p.pro] ?? null) : null, never: d.never.includes(p.name), c: d.is_c.includes(p.id)};
+  };
+  const meT = d.teams.find(t => t.id === d.me);
+  const mine = meT.roster.map(mk).filter(Boolean);
+  const nostat = meT.roster.filter(p => !d.vec[p.id]).map(p => p.name);
+  const fas = d.fas.filter(p => p.pro && (p.status === 'FREEAGENT' || p.status === 'WAIVERS')).map(mk).filter(Boolean);
+  const top10 = ps => [...ps].sort((a, b) => b.rosw - a.rosw).slice(0, 10);
+  const val = ps => sum(top10(ps).map(p => p.rosw));
+  const valU = ps => sum(top10(ps).map(p => p.ros));
+  const cats = ps => top10(ps).reduce((a, p) => a.map((x, i) => x + p.v[i] * p.gl), new Array(nc).fill(0));
+  const base = val(mine), baseU = valU(mine), baseC = cats(mine);
+  const drops = mine.filter(p => !p.never && !p.ir);
+  const swap = (f, dr) => {   // player for player (per category, ROS scale) and the change in your best 10
+    const ps = mine.filter(p => p.id !== dr.id).concat([f]);
+    return {pp: f.rosw - dr.rosw, ppU: f.ros - dr.ros, cats: f.v.map((x, i) => x * f.gl - dr.v[i] * dr.gl),
+      gain: val(ps) - base, gainU: valU(ps) - baseU, nC: ps.filter(p => p.c).length};
+  };
+  const low = drops.length ? drops.reduce((a, b) => b.rosw < a.rosw ? b : a) : null;   // default drop: lowest Your wt
+  fas.forEach(f => { f.bestDrop = low; f.gain = low ? f.rosw - low.rosw : null; });
+  const avg10 = top10(mine).reduce((a, p) => a.map((x, i) => x + p.v[i] / 10), new Array(nc).fill(0));
+  return {d, w, cats: d.cats, mine, fas, nostat, swap, base, avg10, sumZ: sum(top10(mine).map(p => p.ros)),
+    team: meT.name, cLimit: d.c_limit};
+}
+function initFA() {
+  if (FA) return;
+  try { FA = faModel(); } catch (e) { $('#faMine').replaceChildren(el('div', {className:'neg', textContent:'Could not load: ' + e.message})); return; }
+  drawWeights(); drawFA();
+}
+function drawWeights() {
+  const date = FA.d.w_date || (B.season && B.season.weights && B.season.weights.date);
+  const order = FA.cats.map((c, i) => [c, FA.w[i]]).sort((a, b) => b[1] - a[1]);
+  $('#faWts').replaceChildren(...order.map(([c, x]) => el('span', {className: 'wt' + (x >= 1.15 ? ' need' : ''), textContent: c + ' ' + x.toFixed(2)})));
+  if (!date) { $('#faWtSub').textContent = 'Fixed weights from season_config.json (auto weights off).'; return; }
+  const days = Math.round((Date.now() - new Date(date + 'T12:00:00')) / 864e5);
+  const due = days > 7;
+  $('#faWtSub').replaceChildren(el('span', {className: due ? 'wrn' : '', textContent: 'Calculated ' + md(date) + ' (' + (days < 1 ? 'today' : days + (days === 1 ? ' day' : ' days') + ' ago') + ')' + (due ? ', overdue: the next sync should recalculate them.' : '.')}),
+    ' Recalculated every 7 days from your anchors plus your 5 best other players, 50/50 with the previous weights. A high weight means one more unit of that category wins you more categories per week.');
+}
+const zcls = x => x >= 1 ? 'p2' : x >= 0.4 ? 'p1' : x <= -1 ? 'n2' : x <= -0.4 ? 'n1' : '';
+const fmt2 = x => x == null ? 'n/a' : x.toFixed(2);
+function faCols(isFa) {
+  const totals = [
+    {k: 'gm', l: 'Gm', t: 'Games left in the planned matchup', get: p => p.gm, f: x => x == null ? '' : String(x)},
+    {k: 'z', l: 'Z', t: 'Per-game z, equal weights', get: p => p.z, f: fmt2},
+    {k: 'wz', l: 'Wt z', t: 'Per-game z with your category weights', get: p => p.wz, f: fmt2},
+    {k: 'ros', l: 'ROS', t: 'Rest-of-season z, equal weights (trade analyzer ROS)', get: p => p.ros, f: fmt2},
+    {k: 'rosw', l: 'Your wt', t: 'Rest-of-season z with your weights (trade analyzer Your wt)', get: p => p.rosw, f: fmt2}];
+  const cats = FA.cats.map((c, i) => ({k: 'c' + i, l: c, w: FA.w[i], t: c + ' per-game z, weight ' + FA.w[i].toFixed(2), get: p => p.v[i], f: x => x.toFixed(1), z: true}));
+  const cols = fs.view === 'cat' ? cats.concat([totals[4]]) : totals;
+  return isFa ? cols.concat([{k: 'gain', l: 'vs drop', t: 'Your wt of this player minus Your wt of your lowest droppable player', get: p => p.gain, f: x => x == null ? '' : Math.abs(x) < 0.005 ? '0' : f2(x), sw: true}]) : cols;
+}
+function faTable(rows, isFa, foot) {
+  const cols = faCols(isFa), key = isFa ? 'sortF' : 'sortM';
+  if (!cols.some(c => c.k === fs[key])) fs[key] = isFa ? 'gain' : 'rosw';
+  const sc = cols.find(c => c.k === fs[key]);
+  rows = [...rows].sort((a, b) => ((sc.get(b) ?? -99) - (sc.get(a) ?? -99)) || (b.rosw - a.rosw));
+  const short = fs.view === 'cat' || matchMedia('(max-width:560px)').matches;   // initial + last name, no team tag
+  const head = el('tr', {}, el('th', {}, 'Player'), cols.map(c => {
+    const b = el('button', {type: 'button', title: c.t + '. Select to sort.'}, c.l, c.w != null ? el('span', {className: 'w', textContent: '×' + c.w.toFixed(1)}) : null);
+    b.onclick = () => { fs[key] = c.k; drawFA(); };
+    const th = el('th', {className: c.w >= 1.15 ? 'need' : ''}, b);
+    if (c.k === fs[key]) th.setAttribute('aria-sort', 'descending');
+    return th;
+  }));
+  const body = rows.map(p => {
+    const nm = short ? p.name.replace(/^(\S)\S*\s+/, '$1. ') : p.name;
+    const name = el('span', {className: 'pname', title: p.name + ', ' + p.pro}, el('span', {textContent: nm}), short ? null : el('span', {className: 'tag', textContent: p.pro}));
+    if (p.inj !== 'ACTIVE') name.append(el('span', {className: 'tag ' + (OUTS.includes(p.inj) ? 'bad' : 'warn'), textContent: short ? ({OUT: 'out', INJURY_RESERVE: 'IR', SUSPENSION: 'susp', DAY_TO_DAY: 'DTD'}[p.inj] || p.inj.toLowerCase()) : p.inj.replace(/_/g, ' ').toLowerCase()}));
+    if (p.ir) name.append(el('span', {className: 'tag', textContent: short ? 'IR' : 'IR slot'}));
+    if (p.never && !isFa && !short) name.append(el('span', {className: 'tag anchor', textContent: 'anchor'}));
+    if (isFa && p.status === 'WAIVERS') name.append(el('span', {className: 'tag', textContent: short ? 'W' : 'waivers', title: 'On waivers'}));
+    const canDrop = !isFa && !p.never && !p.ir;
+    const on = isFa ? fs.add === p.id : fs.drop === p.id;
+    const tr = el('tr', {className: on ? (isFa ? 'add' : 'drop') : (!isFa && !canDrop ? 'nodrop' : ''), tabIndex: isFa || canDrop ? 0 : -1,
+      title: isFa ? 'Preview adding ' + p.name + (p.bestDrop ? ' (best drop: ' + p.bestDrop.name + ')' : '') : canDrop ? 'Drop ' + p.name + ' in the preview' : ''},
+      el('td', {}, name), cols.map(c => {
+        const x = c.get(p);
+        if (c.z) return el('td', {className: 'zc num'}, el('span', {className: zcls(x), textContent: c.f(x)}));
+        return el('td', {className: 'num ' + (c.sw ? cls(x || 0) : x != null && x < 0 && c.k !== 'gm' ? 'lo' : ''), textContent: c.f(x)});
+      }));
+    const act = () => {
+      if (isFa) { fs.add = fs.add === p.id ? null : p.id; fs.drop = fs.add ? (p.bestDrop && p.bestDrop.id) : null; }
+      else if (canDrop) { if (!fs.add) return; fs.drop = p.id; }
+      drawFA();
+    };
+    tr.onclick = act; tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } };
+    if (isFa || canDrop) tr.setAttribute('aria-pressed', String(on));
+    return tr;
+  });
+  if (!body.length) body.push(el('tr', {}, el('td', {colSpan: cols.length + 1, className: 'dim', textContent: 'No player matches.'})));
+  return el('table', {}, el('thead', {}, head), el('tbody', {}, body), foot ? el('tfoot', {}, foot(cols)) : null);
+}
+function drawFA() {
+  const sTop = $('#faList .tw')?.scrollTop;
+  $('#faVtot').setAttribute('aria-pressed', String(fs.view === 'tot'));
+  $('#faVcat').setAttribute('aria-pressed', String(fs.view === 'cat'));
+  $('.builder.fa').classList.toggle('catv', fs.view === 'cat');
+  const foot = cols => el('tr', {}, el('td', {textContent: fs.view === 'cat' ? 'Team avg (best 10)' : 'Best 10 total'}), cols.map(c => {
+    if (c.z) { const x = FA.avg10[+c.k.slice(1)]; return el('td', {className: 'zc num'}, el('span', {className: zcls(x), textContent: x.toFixed(1)})); }
+    return el('td', {className: 'num', textContent: c.k === 'rosw' ? FA.base.toFixed(2) : c.k === 'ros' ? FA.sumZ.toFixed(2) : ''});
+  }));
+  $('#faMine').replaceChildren(el('div', {style: 'font-weight:600', textContent: FA.team + ' (you)'}),
+    el('div', {className: 'dim cap', textContent: 'After you select a free agent, select one of your players to change the drop.' + (FA.nostat.length ? ' No stats: ' + FA.nostat.join(', ') + '.' : '')}),
+    el('div', {className: 'tw'}, faTable(FA.mine, false, foot)));
+  const q = fs.q.trim().toLowerCase();
+  const list = FA.fas.filter(p => (!q || p.name.toLowerCase().includes(q) || p.pro.toLowerCase() === q)
+    && (!fs.pos || p.elig.includes(POS[fs.pos])) && (!fs.hideOut || !OUTS.includes(p.inj)) || p.id === fs.add);
+  const search = el('input', {className: 'filter', type: 'search', placeholder: 'Search name or team', value: fs.q, 'aria-label': 'Search free agents'});
+  search.oninput = () => { fs.q = search.value; const at = search.selectionStart; drawFA(); const n = $('#faList input[type=search]'); n.focus(); n.setSelectionRange(at, at); };
+  const pos = el('select', {'aria-label': 'Position'}, el('option', {value: '', textContent: 'All positions'}), Object.keys(POS).map(k => el('option', {value: k, textContent: k, selected: fs.pos === k})));
+  pos.onchange = () => { fs.pos = pos.value; drawFA(); };
+  const hide = el('input', {type: 'checkbox', checked: fs.hideOut});
+  hide.onchange = () => { fs.hideOut = hide.checked; drawFA(); };
+  $('#faList').replaceChildren(el('div', {style: 'font-weight:600', textContent: 'Free agents (' + list.length + ' of ' + FA.fas.length + ')'}),
+    el('div', {className: 'dim cap', textContent: 'The ' + FA.d.fas.length + ' most rostered free agents and waiver players from the last sync. Select one to preview the swap.'}),
+    el('div', {className: 'tools'}, search, pos, el('label', {}, hide, 'Hide OUT')),
+    el('div', {className: 'tw tall'}, faTable(list, true)));
+  if (sTop) $('#faList .tw').scrollTop = sTop;
+  drawSwap();
+}
+function drawSwap() {
+  const f = FA.fas.find(p => p.id === fs.add), dr = FA.mine.find(p => p.id === fs.drop);
+  $('#faClear').hidden = !f;
+  if (!f) { $('#faRes').textContent = 'Select a free agent to preview a swap'; $('#faRes').className = 'res'; $('#faSub').textContent = ''; $('#faCats').replaceChildren(); return; }
+  if (!dr) { $('#faRes').textContent = 'Add ' + f.name + ': select a player to drop'; $('#faRes').className = 'res'; $('#faSub').textContent = ''; $('#faCats').replaceChildren(); return; }
+  const r = FA.swap(f, dr);
+  $('#faRes').textContent = 'Add ' + f.name + ', drop ' + dr.name + ': Your wt ' + f2(r.pp);
+  $('#faRes').className = 'res ' + cls(r.pp);
+  $('#faSub').textContent = 'Player for player, rest of season. ROS ' + f2(r.ppU) + '. Best-10 total ' + (Math.abs(r.gain) < 0.005 ? 'no change' : f2(r.gain)) + '.'
+    + (r.nC > FA.cLimit ? ' ' + r.nC + ' C, above the limit of ' + FA.cLimit + '.' : '');
+  const order = FA.cats.map((c, i) => i).sort((a, b) => FA.w[b] - FA.w[a]);
+  $('#faCats').replaceChildren(...order.map(i => { const x = r.cats[i]; return el('span', {className: 'cat ' + (x > 0.005 ? 'p' : x < -0.005 ? 'n' : 'z'), title: FA.cats[i] + ', weight ' + FA.w[i].toFixed(2), textContent: FA.cats[i] + ' ' + f2(x)}); }));
+}
+$('#faVtot').onclick = () => { fs.view = 'tot'; try { localStorage.setItem('fbbFaView', 'tot'); } catch (e) {} drawFA(); };
+$('#faVcat').onclick = () => { fs.view = 'cat'; try { localStorage.setItem('fbbFaView', 'cat'); } catch (e) {} drawFA(); };
+$('#faClear').onclick = () => { fs.add = fs.drop = null; drawFA(); };
 
 // ---------------- league
 let stLoaded = 0;

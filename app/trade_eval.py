@@ -71,7 +71,9 @@ def build_context(path, sched):
         if p.get('pro') and p['inj'] not in A.OUT and p['id'] in vec and p['status'] in ('FREEAGENT', 'WAIVERS'):
             pv_pool.setdefault(p['id'], p)
     pv, _ = TM.perceived_values(list(pv_pool.values()), season_start, dt.date.today(), cfg)
-    slim = lambda p: {k: p.get(k) for k in ('id', 'name', 'pro', 'inj', 'slot', 'status')}
+    slim = lambda p: {k: p.get(k) for k in ('id', 'name', 'pro', 'inj', 'slot', 'status', 'pos', 'elig', 'rost')}
+    # games each NBA team has left in the matchup being planned (from s['startSp'], today included)
+    gwk = {str(t): len(g) for t, g in games.items()}
     return dict(
         me=s['me']['id'], pulled=s['pulled'], cats=SP.CAT_ORDER, w=[float(x) for x in w_arr], zr=list(zr),
         teams=[dict(id=t['id'], name=t['name'], roster=[slim(p) for p in t['roster']]) for t in s['teams']],
@@ -79,7 +81,16 @@ def build_context(path, sched):
         vec={str(k): [float(x) for x in v] for k, v in vec.items()}, gl={str(k): float(v) for k, v in gl.items()},
         pv={str(k): float(v) for k, v in pv.items()}, premium=read_premium(s),
         never=sorted(cfg['never_trade']), is_c=[p['id'] for p in pool.values() if P.is_c(p)],
-        c_limit=P.C_LIMIT, proteam=s['proTeams'], even_band=EVEN_BAND)
+        c_limit=P.C_LIMIT, proteam=s['proTeams'], even_band=EVEN_BAND,
+        gwk=gwk, mp=s['matchupPeriod'], w_date=read_w_date(cfg))
+
+
+def read_w_date(cfg):
+    """Date of the category weights in cat_weights.json (None when fixed weights are used)."""
+    import os
+    if cfg['auto_weights'] and os.path.exists('cat_weights.json'):
+        return json.load(open('cat_weights.json')).get('date')
+    return None
 
 
 def read_premium(s):
