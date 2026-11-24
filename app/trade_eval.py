@@ -32,6 +32,7 @@ def build_context(path, sched):
         cfg['cat_weights'] = json.load(open('cat_weights.json'))['weights']
     today = s['todaySp']
     reg_end, po_start, po_end = SP.sp_ranges(sched)
+    r1 = SP.skip_r1(cfg, sched)   # bye likely: round 1 games count 0 (same rule as season_plan.py)
     pool = {p['id']: p for t in s['teams'] for p in t['roster']}
     for p in s['fas']:
         pool.setdefault(p['id'], p)
@@ -58,6 +59,8 @@ def build_context(path, sched):
         for sp, n in s['gamesAll'].get(str(p['pro']), {}).items():
             sp = int(sp)
             if sp < skip or sp > po_end:
+                continue
+            if r1 and r1[0] <= sp <= r1[1]:
                 continue
             tot += n * (cfg['playoff_weight'] if sp >= po_start else 1.0) if sp >= po_start or sp <= reg_end else 0
         gp = (p.get('proj') or {}).get('gp')
