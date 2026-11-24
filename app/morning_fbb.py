@@ -451,14 +451,14 @@ def report(out, head, p0, verdicts, proposed, lineup, inj, crowded, extra, reaso
     row('Win chance', f'{pct(p0)} now' + (f', {pct(p_today)} with plan' + c("  (proposed moves only)", DIM)
                                           if p_today is not None else '')
         + (c(f'  week plan {pct(p1)}', DIM) if FULL and p1 is not None else ''))
-    if not FULL:
-        compact(out, pl, verdicts, lineup, sea)
-        return
     cats = sorted(cats_line(out).items(), key=lambda kv: -kv[1])
     fmt = lambda kvs, col: '  '.join(c(f'{k} {v * 100:.0f}', col) for k, v in kvs) or c('none', DIM)
     row('Winning', fmt([kv for kv in cats if kv[1] >= 0.6], GREEN))
     row('Toss-up', fmt([kv for kv in cats if 0.4 <= kv[1] < 0.6], YELLOW))
     row('Losing', fmt([kv for kv in cats if kv[1] < 0.4], RED))
+    if not FULL:
+        compact(out, pl, verdicts, lineup, sea)
+        return
     print()
 
     today = pl.group(1) if pl else f'{NOW:%a %b %d}'
