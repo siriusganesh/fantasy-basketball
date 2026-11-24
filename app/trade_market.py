@@ -21,6 +21,9 @@ Palatable trade: partner PV in >= (1 + premium) x partner PV out. A package coun
 Good for me: my best-10 ROS z rises by at least trade_min_gain.
 Need fit: each partner gets category weights from his own roster (same method as mine);
   the idea ranks higher when it helps his weak categories, and the pitch names them.
+Rival: score - rival_k x partner's playoff opponent weight (bracket.py pi) x his best-10 z gain, so ideas that
+  make a likely playoff opponent stronger rank lower. season_plan.py then removes ideas that raise a rival's
+  chance to beat me by more than rival_max_gain, or hurt this or next week's matchup.
 Managers: no ideas for teams with 0 acquisitions and 0 trades, or for this week's opponent.
 Learning: ESPN trade transactions with my team go to trades_log.jsonl; the premium rises 2.5
   points for each declined offer I made and falls 2.5 for each accepted one (0..25%).
@@ -175,6 +178,7 @@ def find_trades(s, cfg, R, gl, active, fas, c_count, is_c, c_limit, season_start
         theirs = [p for p in t['roster'] if p.get('slot') != IR_SLOT and A.rate(p) is not None]
         their_c = sum(is_c(p) for p in theirs)
         need_w, weak = team_needs(s, t['id'])
+        pi_t = (cfg.get('_po_pi') or {}).get(t['id'], 0.0)
         pz = lambda p: cz[p['id']] * gl.get(p['id'], 0) if p['id'] in cz else np.zeros(len(CATS))
 
         def their_vec(ps):
@@ -214,7 +218,10 @@ def find_trades(s, cfg, R, gl, active, fas, c_count, is_c, c_limit, season_start
                     dz = their_vec(their_after) - their_vec(theirs)
                     need_gain = float(dz @ need_w)
                     helps = [c for c in weak if dz[CATS.index(c)] > 0.05]
-                    score = gain + 0.5 * need_gain
+                    # rival penalty: a likely playoff opponent (bracket.py weight pi) should not get stronger
+                    rival_z = max(0.0, float(dz.sum()))
+                    rival_pen = cfg.get('rival_k', 0.0) * pi_t * rival_z
+                    score = gain + 0.5 * need_gain - rival_pen
                     if best is None or score > best['score']:
                         best = {'team': t['name'], 'give': [g['name'] for g in give], 'get': [r['name'] for r in get],
                                 'add_fa': best_fa['name'] if kg > kr and best_fa else None,
@@ -222,7 +229,8 @@ def find_trades(s, cfg, R, gl, active, fas, c_count, is_c, c_limit, season_start
                                 'partner_drops': their_drop['name'] if their_drop else None,
                                 'gain': round(gain, 2), 'pv_in': round(pv_in, 1), 'pv_out': round(pv_out, 1),
                                 'partner_need_gain': round(need_gain, 2), 'helps': helps, 'weak': weak,
-                                'activity': activity, 'score': round(score, 2)}
+                                'activity': activity, 'rival_pi': round(pi_t, 3), 'rival_pen': round(rival_pen, 2),
+                                'score': round(score, 2)}
         if best:
             ideas.append(best)
     ideas.sort(key=lambda x: -x['score'])

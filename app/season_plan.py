@@ -18,10 +18,16 @@ Category weights (auto_weights): every 7 days the weights are recalculated from 
   5 best other players on the roster. A simulated week against each of the 9 other teams measures how
   many more categories per week one player's +1 SD in each category wins. Weight = that gain / mean gain,
   clipped to 0.3..2.0, then averaged 50/50 with the previous weights (smoothing). Saved in cat_weights.json.
+  Playoff targeting (bracket.py): the weights are a blend of these regular-season weights and playoff weights.
+  Playoff weight = how much one player's +1 SD raises my chance to WIN THE WEEK (5 of 9) against each team,
+  weighted by that team's chance to be my R2 or final opponent (bracket pi). The playoff share is po_blend
+  (50% on 2026-11-24, 100% at the Feb 26 trade deadline). When P(bye) > bye_skip_r1, round 1 games count 0.
 Core list: anchors always; other players by ROS z above replacement level (mean ROS z of the 2nd-4th
   best free agents): enter at +1.5, stay while above +0.5.
 Trade check (with --trades): each trade idea is also simulated against the 9 other teams (cats_per_week);
-  'cats_wk' = change in expected categories won per week. Ideas with cats_wk <= 0 are removed.
+  'cats_wk' = change in expected categories won per week. Ideas with cats_wk <= 0 are removed. Also removed:
+  an idea that lowers P(win) against this or next week's opponent by more than trade_max_pwin_loss, and an
+  idea that raises a likely playoff opponent's (rival) chance to beat me by more than rival_max_gain.
 Output: JSON with season total and rank, upgrades, IR, core check, trades (with --trades).
 """
 import sys, json, csv, itertools, datetime as dt, os
@@ -47,6 +53,15 @@ DEFAULTS = {
     'weights_clip': [0.3, 2.0],
     'core_enter': 1.5,              # ROS z above replacement to enter the core list
     'core_leave': 0.5,              # a core player stays while above this
+    # playoff targeting (bracket.py). Category weights = blend of the regular-season weights (all 9 teams equal,
+    # expected categories won) and the playoff weights (chance to win the week against my likely playoff
+    # opponents). The playoff share moves linearly from start_share on start to end_share on end.
+    'po_blend': {'start': '2026-11-24', 'start_share': 0.5, 'end': '2027-02-26', 'end_share': 1.0},
+    'bye_skip_r1': 0.7,             # P(bye) above this: playoff round 1 games count 0 in ROS z
+    'trade_max_pwin_loss': 0.02,    # a trade idea may lower P(win) vs this or next week's opponent by no more
+    'rival_k': 2.0,                 # trade score penalty: rival_k x partner's playoff weight x his z gain
+    'rival_min_pi': 0.08,           # a partner with this playoff weight or more counts as a rival
+    'rival_max_gain': 0.03,         # a rival's chance to beat me may rise by no more than this
 }
 GAMES_PER_WEEK = 3.4                # per player, for the weekly simulation (approximate)
 CAT_ORDER = ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'TO', 'FG%', 'FT%']
@@ -66,8 +81,10 @@ def load_cfg():
     return cfg
 
 
-def calc_weights(s, anchors, roster):
-    """Marginal value of each category for anchors + the 5 best other roster players (see docstring)."""
+def calc_weights(s, anchors, roster, pi=None):
+    """Marginal value of each category for anchors + the 5 best other roster players (see docstring).
+    pi: team id -> playoff opponent weight (bracket.py). Returns (regular weights, cats won, per-category win
+    prob, complement players, playoff weights or None)."""
     I, wk = A.IDX, GAMES_PER_WEEK
     ok = lambda p: p.get('slot') != IR_SLOT and A.rate(p) is not None
     top10 = lambda ps: sorted(ps, key=lambda p: -A.value(A.rate(p)))[:10]
@@ -81,41 +98,90 @@ def calc_weights(s, anchors, roster):
     sd = M.std(0)
     fg = M[:, I['13']].sum() / M[:, I['14']].sum(); ft = M[:, I['15']].sum() / M[:, I['16']].sum()
     z, zo = A.normals(5, 20000), A.normals(6, 20000)
+    opp_ids = [t['id'] for t in s['teams'] if t['id'] != s['me']['id']]
     opp_draws = [A.draw({}, o, zo) for o in opps]
 
     def ecats(my):
-        a = A.draw({}, my, z); tot = 0.0; per = {}
-        for b in opp_draws:
+        """(expected categories won per week, all 9 teams equal; per-category win prob; id -> P(win week))"""
+        a = A.draw({}, my, z); tot = 0.0; per = {}; pw = {}
+        for tid, b in zip(opp_ids, opp_draws):
             pc, w, l = A.compare(s, a, b)
             tot += np.mean(w) + 0.5 * np.mean(9 - w - l)
+            pw[tid] = float(np.mean(w > l) + 0.5 * np.mean(w == l))
             for k, v in pc.items():
                 per[k] = per.get(k, 0) + v / len(opp_draws)
-        return tot / len(opp_draws), per
-    base, per = ecats(mine)
+        return tot / len(opp_draws), per, pw
+    base, per, pw0 = ecats(mine)
     steps = {'PTS': ('0', 1), 'REB': ('6', 1), 'AST': ('3', 1), 'STL': ('2', 1), 'BLK': ('1', 1),
              '3PM': ('17', 1), 'TO': ('11', -1)}
-    gain = {}
+    gain, po_gain = {}, {}
+    pi = {int(k): v for k, v in (pi or {}).items()}
+
+    def record(c, x):
+        e, _, pw = ecats(x)
+        gain[c] = e - base
+        po_gain[c] = sum(pi.get(t, 0.0) * (pw[t] - pw0[t]) for t in opp_ids)
     for c, (k, sign) in steps.items():
-        x = mine.copy(); x[I[k]] += sign * sd[I[k]] * wk; gain[c] = ecats(x)[0] - base
+        x = mine.copy(); x[I[k]] += sign * sd[I[k]] * wk; record(c, x)
     for c, mk, at, pct in (('FG%', '13', '14', fg), ('FT%', '15', '16', ft)):
-        x = mine.copy(); x[I[mk]] += (M[:, I[mk]] - pct * M[:, I[at]]).std() * wk; gain[c] = ecats(x)[0] - base
+        x = mine.copy(); x[I[mk]] += (M[:, I[mk]] - pct * M[:, I[at]]).std() * wk; record(c, x)
     m = np.mean(list(gain.values()))
-    return {c: gain[c] / m for c in CAT_ORDER}, base, per, [p['name'] for p in rest[:10 - len(anc)]]
+    reg = {c: gain[c] / m for c in CAT_ORDER}
+    mp = np.mean(list(po_gain.values()))
+    po = {c: max(0.0, po_gain[c] / mp) for c in CAT_ORDER} if pi and mp > 0 else None
+    return reg, base, per, [p['name'] for p in rest[:10 - len(anc)]], po
 
 
-def update_weights(s, cfg):
-    """Recalculate cat_weights.json when it is missing, 7+ days old, or the anchors changed."""
+def po_share(cfg, today):
+    """Playoff share of the category weights on date `today` (see DEFAULTS po_blend)."""
+    b = cfg['po_blend']
+    d0, d1 = dt.date.fromisoformat(b['start']), dt.date.fromisoformat(b['end'])
+    t = min(1.0, max(0.0, (today - d0).days / max((d1 - d0).days, 1)))
+    return b['start_share'] + t * (b['end_share'] - b['start_share']) if today >= d0 else 0.0
+
+
+def round_range(sched_path, name):
+    """(first sp, last sp) of a schedule period such as 'Playoff Round 1', else None."""
+    rows = list(csv.DictReader(open(sched_path)))
+    start = dt.date.fromisoformat(sorted({r['start'] for r in rows})[0])
+    r = [x for x in rows if x['period'] == name]
+    if not r:
+        return None
+    sp = lambda d: (dt.date.fromisoformat(d) - start).days + 1
+    return sp(r[0]['start']), sp(r[0]['end'])
+
+
+def skip_r1(cfg, sched_path, weights=None):
+    """Scoring periods of playoff round 1 when my bye is likely (P(bye) > bye_skip_r1), else None."""
+    if weights is None and os.path.exists('cat_weights.json'):
+        weights = json.load(open('cat_weights.json'))
+    p_bye = ((weights or {}).get('bracket') or {}).get('p_bye', 0.0)
+    return round_range(sched_path, 'Playoff Round 1') if p_bye > cfg['bye_skip_r1'] else None
+
+
+def update_weights(s, cfg, sched=None):
+    """Recalculate cat_weights.json when it is missing, 7+ days old, the anchors changed, or it has no bracket yet.
+    With a schedule and s['schedule']: the bracket simulation (bracket.py) runs first, and the weights are the
+    po_blend mix of the regular-season and playoff weights."""
     path, today = 'cat_weights.json', dt.date.today()
     old = json.load(open(path)) if os.path.exists(path) else None
+    can_bracket = sched is not None and bool(s.get('schedule'))
     fresh = old and old.get('anchors') == cfg['anchors'] and \
-        (today - dt.date.fromisoformat(old['date'])).days < cfg['weights_days']
+        (today - dt.date.fromisoformat(old['date'])).days < cfg['weights_days'] and \
+        (old.get('bracket') is not None or not can_bracket)
     if fresh:
         return old
     old_bl = A.BLEND_GP; A.BLEND_GP = cfg['ros_blend_gp']
     try:
-        new, base, per, comp = calc_weights(s, cfg['anchors'], s['me']['roster'])
+        br = None
+        if can_bracket:
+            import bracket
+            br = bracket.simulate(s, sched)
+        reg, base, per, comp, po = calc_weights(s, cfg['anchors'], s['me']['roster'], br and br['pi'])
     finally:
         A.BLEND_GP = old_bl
+    share = po_share(cfg, today) if po else 0.0
+    new = {c: (1 - share) * reg[c] + share * po[c] for c in CAT_ORDER} if po else reg
     lo, hi = cfg['weights_clip']
     new = {c: min(hi, max(lo, v)) for c, v in new.items()}
     if old and old.get('anchors') == cfg['anchors']:
@@ -124,7 +190,10 @@ def update_weights(s, cfg):
     mean = np.mean(list(new.values()))
     rec = {'date': today.isoformat(), 'anchors': cfg['anchors'], 'complement': comp,
            'weights': {c: round(v / mean, 2) for c, v in new.items()},
-           'cats_won': round(base, 2), 'win_prob': {c: round(v, 2) for c, v in per.items()}}
+           'cats_won': round(base, 2), 'win_prob': {c: round(v, 2) for c, v in per.items()},
+           'regular': {c: round(v, 2) for c, v in reg.items()},
+           'playoff': {c: round(v, 2) for c, v in po.items()} if po else None,
+           'po_share': round(share, 2), 'bracket': br}
     json.dump(rec, open(path, 'w'), indent=1)
     rec['recalculated'] = True
     return rec
@@ -192,6 +261,21 @@ def cats_per_week(s, gl, R):
     return f
 
 
+def week_pwin(s, gl, R):
+    """Returns f(my players, opponent players) -> P(I win one neutral week), most categories, tie = half.
+    Same lineup and volume rules as cats_per_week. Call with A.BLEND_GP already set."""
+    use = lambda p: A.rate(p) is not None and p['id'] in gl
+    best10 = lambda ps: sorted((p for p in ps if use(p)), key=lambda p: -R(p))[:10]
+    ref = float(np.mean([gl[p['id']] for t in s['teams'] for p in best10(t['roster'])])) or 1.0
+    vec = lambda ps: sum((A.rate(p) * GAMES_PER_WEEK * gl[p['id']] / ref for p in ps), np.zeros(len(A.K)))
+    z, zo = A.normals(5, 20000), A.normals(6, 20000)
+
+    def f(mine, theirs):
+        _, w, l = A.compare(s, A.draw({}, vec(best10(mine)), z), A.draw({}, vec(best10(theirs)), zo))
+        return float(np.mean(w > l) + 0.5 * np.mean(w == l))
+    return f
+
+
 def main():
     snap, sched, core_path = sys.argv[1], sys.argv[2], sys.argv[3]
     out_path = sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else 'season.json'
@@ -202,8 +286,11 @@ def main():
     core = set(json.load(open(core_path)))
     weights = None
     if cfg['auto_weights']:
-        weights = update_weights(s, cfg)
+        weights = update_weights(s, cfg, sched)
         cfg['cat_weights'] = weights['weights']
+    r1 = skip_r1(cfg, sched, weights)
+    br = (weights or {}).get('bracket') or {}
+    cfg['_po_pi'] = {int(k): v for k, v in (br.get('pi') or {}).items()}   # trade_market.py rival penalty
 
     # ---- player values ----
     pool = {p['id']: p for t in s['teams'] for p in t['roster']}
@@ -223,6 +310,8 @@ def main():
         for sp, n in s['gamesAll'].get(str(p['pro']), {}).items():
             sp = int(sp)
             if sp < skip or sp > po_end:
+                continue
+            if r1 and r1[0] <= sp <= r1[1]:   # bye likely: I play no round 1 games
                 continue
             if sp == today:   # a game that already started is sunk: its stats are in the averages
                 n = sum(1 for g in s['games'].get(str(p['pro']), []) if g['sp'] == today and g['date'] > now_ms)
@@ -285,7 +374,10 @@ def main():
                        'date': (season_start + dt.timedelta(today - 1)).isoformat()},
               'players': sorted(((p['name'], round(R(p), 2), p['name'] in core) for p in ros_me), key=lambda x: -x[1]),
               # every player's ROS z, for the matchup planner's season-value term (season_value.values)
-              'ros': {str(k): round(v, 3) for k, v in ros.items()}, 'pulled': s['pulled']}
+              'ros': {str(k): round(v, 3) for k, v in ros.items()}, 'pulled': s['pulled'],
+              'bracket': {k: br.get(k) for k in ('p_playoffs', 'p_bye', 'p_title', 'pi_names', 'meet', 'title_odds',
+                                                 'seed', 'record', 'cats_vs_top')} if br else None,
+              'skip_r1': bool(r1)}
 
     # ---- this matchup P(win) for a list of (sp, add, drop) moves (same model as eval_plan.py) ----
     slots = A.starter_slots(s)
@@ -409,15 +501,44 @@ def main():
                 s, cfg, R, gl, active, fas, c_count, P.is_c, P.C_LIMIT, season_start, dt.date.today(), limit=None)
             # check each idea with the full category simulation; keep the best 3 that win more categories
             cw = cats_per_week(s, gl, R)
+            wp = week_pwin(s, gl, R)
             byname = {p['name']: p for p in pool.values()}
             base_cw = cw(active)
+            # opponents of this matchup and the next one (current matchup guard)
+            mp_now = s.get('currentMatchupPeriod', s['matchupPeriod'])
+            near = [s['opp']['id']] + [h if a == my_id else a for m, h, a, _ in s.get('schedule', [])
+                                       if m == mp_now + 1 and my_id in (h, a)]
+            teams = {t['id']: t for t in s['teams']}
+            mine_now = lambda ps: [p for p in ps if p.get('slot') != IR_SLOT]
+            removed = result['trade_meta'].setdefault('removed', [])
+            keep = []
             for i in ideas:
                 after = [p for p in active if p['name'] not in i['give'] and p['name'] != i['my_drop']]
                 after += [byname[n] for n in i['get']] + ([byname[i['add_fa']]] if i['add_fa'] else [])
                 i['cats_wk'] = round(cw(after) - base_cw, 3)
-            result['trade_meta']['removed_by_cats_check'] = [
-                f"{' + '.join(i['give'])} -> {' + '.join(i['get'])} ({i['cats_wk']:+.3f})" for i in ideas if i['cats_wk'] <= 0]
-            result['trades'] = [i for i in ideas if i['cats_wk'] > 0][:3]
+                label = f"{' + '.join(i['give'])} -> {' + '.join(i['get'])}"
+                # 1. regular season: must win more categories per week on average (all 9 teams)
+                if i['cats_wk'] <= 0:
+                    removed.append(f"{label}: fewer categories per week ({i['cats_wk']:+.3f})"); continue
+                # 2. this and next matchup: P(win) may drop by no more than trade_max_pwin_loss
+                d = {teams[o]['name']: round(wp(after, mine_now(teams[o]['roster'])) - wp(active, mine_now(teams[o]['roster'])), 3)
+                     for o in near if o in teams}
+                i['near_pwin'] = d
+                if d and min(d.values()) < -cfg['trade_max_pwin_loss']:
+                    removed.append(f"{label}: hurts a near matchup {d}"); continue
+                # 3. rival: the partner's chance to beat me may not rise much if he is a likely playoff opponent
+                t = next(x for x in s['teams'] if x['name'] == i['team'])
+                pi_t = cfg['_po_pi'].get(t['id'], 0.0)
+                if pi_t >= cfg['rival_min_pi']:
+                    theirs0 = mine_now(t['roster'])
+                    theirs1 = [p for p in theirs0 if p['name'] not in i['get'] and p['name'] != i['partner_drops']]
+                    theirs1 += [byname[n] for n in i['give']]
+                    i['rival_up'] = round((1 - wp(after, theirs1)) - (1 - wp(active, theirs0)), 3)
+                    if i['rival_up'] > cfg['rival_max_gain']:
+                        removed.append(f"{label}: makes playoff rival {i['team']} stronger vs me (+{i['rival_up']:.3f})"); continue
+                keep.append(i)
+            result['trade_meta']['removed_by_cats_check'] = [r for r in removed if 'categories per week' in r]
+            result['trades'] = keep[:3]
         finally:
             A.BLEND_GP = old
 

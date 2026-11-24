@@ -10,6 +10,20 @@ Daily planner for the ESPN fantasy team Denny Nuggies (League of Tacos). Moved f
 - **GitHub Pages** shows the Sync, Trade analyzer and League tabs. The trade check runs `app/trade_eval.py` in the
   browser with Pyodide.
 
+## Playoff targeting
+
+`app/bracket.py` simulates the rest of the season and the 6-team bracket every time the category weights are
+recalculated (every 7 days). It gives the chance of a bye and the title, and a weight for each team: how likely
+it is to be my R2 or final opponent. The category weights are a blend: regular season (all 9 teams equal) and
+playoff (chance to win the week against the likely opponents). The playoff share is 50% from 2026-11-24 and
+100% at the Feb 26 trade deadline (`po_blend` in `season_plan.py`). When the bye is more than 70% likely,
+round 1 games count 0 in ROS z.
+
+Guards so the current matchups do not suffer: the daily plan still maximizes this matchup's P(win); an upgrade
+may lower it by 0.02 at most (as before); a trade idea must still win more categories per week against all 9
+teams, may lower P(win) against this or next week's opponent by 0.02 at most, and may raise a likely playoff
+opponent's chance to beat me by 0.03 at most.
+
 ## The repo is public: what is visible
 
 | Visible to anyone | Encrypted (needs the password) |

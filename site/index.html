@@ -398,6 +398,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
         <div class="dim cap" id="lgSub">Loading ...</div>
       </div>
     </div>
+    <div class="cap" id="lgPo" style="margin-top:var(--s2)" hidden></div>
     <div class="lwrap" style="margin-top:var(--s2)"><table class="lg" id="lgTable" aria-describedby="lgSub"></table></div>
     <details class="help lnote">
       <summary>How this works</summary>
@@ -925,7 +926,8 @@ function drawWeights() {
   const days = Math.round((Date.now() - new Date(date + 'T12:00:00')) / 864e5);
   const due = days > 7;
   $('#faWtSub').replaceChildren(el('span', {className: due ? 'wrn' : '', textContent: 'Calculated ' + md(date) + ' (' + (days < 1 ? 'today' : days + (days === 1 ? ' day' : ' days') + ' ago') + ')' + (due ? ', overdue: the next sync should recalculate them.' : '.')}),
-    ' Recalculated every 7 days from your anchors plus your 5 best other players, 50/50 with the previous weights. A high weight means one more unit of that category wins you more categories per week.');
+    ' Recalculated every 7 days from your anchors plus your 5 best other players, 50/50 with the previous weights. A high weight means one more unit of that category wins you more categories per week' +
+    (B.season && B.season.weights && B.season.weights.playoff ? ', mixed with how much it raises your chance to win the playoff weeks against your likely opponents (playoff share ' + Math.round(B.season.weights.po_share * 100) + '% now, 100% at the Feb 26 trade deadline).' : '.'));
 }
 const zcls = x => x >= 1 ? 'p2' : x >= 0.4 ? 'p1' : x <= -1 ? 'n2' : x <= -0.4 ? 'n1' : '';
 const fmt2 = x => x == null ? 'n/a' : x.toFixed(2);
@@ -1064,6 +1066,19 @@ async function loadStandings(force) {
     body.push(tr, det);
   });
   $('#lgTable').replaceChildren(el('thead', {}, head), el('tbody', {}, body));
+  // playoff outlook from the bracket simulation (season.json, bracket.py)
+  const br = B.season && B.season.bracket, po = $('#lgPo');
+  if (br) {
+    const pc = x => Math.round(x * 100) + '%';
+    const opp = Object.entries(br.pi_names || {}).filter(e => e[1] >= 0.05).map(e => e[0] + ' ' + pc(e[1])).join(', ');
+    po.replaceChildren(
+      el('div', {}, el('b', {textContent: 'Playoff outlook: '}), document.createTextNode(
+        'playoffs ' + pc(br.p_playoffs) + ', bye ' + pc(br.p_bye) + ', title ' + pc(br.p_title) + '.' +
+        (B.season.skip_r1 ? ' Bye likely, so round 1 games count 0 in ROS.' : ''))),
+      el('div', {className: 'dim', textContent: 'Likely playoff opponents (weight in your category weights): ' + opp +
+        '. Simulation with fixed rosters, so the odds are more extreme than real life.'}));
+    po.hidden = false;
+  } else po.hidden = true;
 }
 async function start() {
   showSync();

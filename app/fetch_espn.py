@@ -232,7 +232,10 @@ def main():
         'acq': {k: acq.get(k) for k in ('matchupAcquisitionLimit', 'matchupLimitPerScoringPeriod', 'waiverHours')},
         'proTeams': {str(t['id']): t['abbrev'].upper() for t in ps['settings']['proTeams']},
         'games': games, 'me': mark_pending(side(me['id']), pend_drop), 'opp': side(opp_id), 'fas': fas,
-        'gamesAll': games_all, 'teams': teams, 'tradesTx': trades_tx, 'stability': stability}
+        'gamesAll': games_all, 'teams': teams, 'tradesTx': trades_tx, 'stability': stability,
+        # league schedule and results: [matchup period, home team, away team, HOME/AWAY/TIE/UNDECIDED] (bracket.py)
+        'schedule': [[m['matchupPeriodId'], m['home']['teamId'], m['away']['teamId'], m.get('winner')]
+                     for m in lg['schedule'] if m.get('home') and m.get('away')]}
     json.dump(js_numbers(snap), open(out_path, 'w'))
 
 
